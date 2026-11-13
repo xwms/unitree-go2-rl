@@ -24,12 +24,20 @@ rl = [
     "isaaclab[all]==2.3.0",
     "isaacsim[all,extscache]==5.1.0",
     "unitree-rl-lab",
+    # 直接声明：uv 只对直接依赖应用 [tool.uv.sources] 的 index 覆盖，
+    # 版本由 isaacsim-core 的 >=2.7.0,<2.7.0+ 约束锁定（Blackwell 需 cu128 构建）
+    "torch",
+    "torchvision",
+    "torchaudio",
 ]
 
 [tool.uv.sources]
 unitree-sdk2py = { path = "stack/unitree_sdk2_python", editable = true }
 unitree-rl-lab = { path = "stack/unitree_rl_lab/source/unitree_rl_lab", editable = true }
 go2-stair = { path = "src/go2_stair", editable = true }
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
 
 [[tool.uv.index]]
 # isaacsim-* 及其传递依赖只存在于 pypi.nvidia.com，必须用隐式索引
@@ -37,6 +45,13 @@ go2-stair = { path = "src/go2_stair", editable = true }
 # uv 按顺序搜索：先默认 PyPI，后 NVIDIA。
 name = "nvidia-pypi"
 url = "https://pypi.nvidia.com"
+
+[[tool.uv.index]]
+# PyPI 默认的 torch 是 cu126 构建（不含 Blackwell sm_100/sm_120），
+# RTX 50 系 / RTX PRO 需要 cu128 构建（Isaac Lab 官方装法）
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
 
 [tool.uv.extra-build-dependencies]
 # flatdict 4.0.1（isaaclab 依赖）的 setup.py 用了 pkg_resources；
