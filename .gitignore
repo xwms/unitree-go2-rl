@@ -9,3 +9,6 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+
+# 论文等资料
+docs/*.pdf
