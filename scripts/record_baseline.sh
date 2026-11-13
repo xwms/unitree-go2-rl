@@ -37,7 +37,9 @@ trap 'kill "$MON_PID" 2>/dev/null || true' EXIT
 echo "[record_baseline] 结果目录: $OUT"
 echo "[record_baseline] 训练输出见: $OUT/train.log"
 
-PYTHONUNBUFFERED=1 bash "$ROOT/scripts/train_stair.sh" "$@" 2>&1 | tee "$OUT/train.log"
+PYTHONUNBUFFERED=1 bash "$ROOT/scripts/train_stair.sh" "$@" 2>&1 \
+    | while IFS= read -r line; do printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$line"; done \
+    | tee "$OUT/train.log"
 
 kill "$MON_PID" 2>/dev/null || true
 wait "$MON_PID" 2>/dev/null || true
@@ -62,18 +64,21 @@ with open(f"{out}/cpu.csv") as f:
         cpus.append(float(row["utilization.cpu_total"]))
         cores.append(float(row["utilization.cpu_maxcore"]))
 
-ts_re = re.compile(r"\[(\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]")
-iter_re = re.compile(r"\biter (\d+)/")
-first_ts, iter_ts = None, []
+ts_re = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)")
+iter_re = re.compile(r"Learning iteration (\d+)/")
+iter_time_re = re.compile(r"Iteration time:\s*([0-9.]+)s")
+first_ts, iter_start_ts, iter_times = None, None, []
 for line in open(f"{out}/train.log", errors="ignore"):
-    m = ts_re.search(line)
-    if not m:
-        continue
-    t = datetime.strptime(m.group(1), "%m-%d %H:%M:%S")
-    if first_ts is None:
-        first_ts = t
-    if iter_re.search(line):
-        iter_ts.append(t)
+    m = ts_re.match(line)
+    if m:
+        t = datetime.strptime(m.group(1), "%Y-%m-%dT%H:%M:%SZ")
+        if first_ts is None:
+            first_ts = t
+        if iter_start_ts is None and iter_re.search(line):
+            iter_start_ts = t
+    m = iter_time_re.search(line)
+    if m:
+        iter_times.append(float(m.group(1)))
 
 def stats(xs):
     return (sum(xs) / len(xs), max(xs)) if xs else (0.0, 0.0)
@@ -88,13 +93,17 @@ t_avg, t_peak = stats(cpus)
 lines.append(f"CPU 整体(全核平均): 平均 {t_avg:.1f}%  峰值 {t_peak:.1f}%")
 c_avg, c_peak = stats(cores)
 lines.append(f"CPU 单核最高: 平均 {c_avg:.1f}%  峰值 {c_peak:.1f}%")
-if first_ts and iter_ts:
-    lines.append(f"首轮启动耗时(日志首行→首个iter): {(iter_ts[0] - first_ts).total_seconds():.0f} s")
-if len(iter_ts) >= 2:
-    gaps = [(iter_ts[i + 1] - iter_ts[i]).total_seconds() for i in range(len(iter_ts) - 1)]
-    lines.append(f"每迭代耗时: 中位 {sorted(gaps)[len(gaps) // 2]:.1f} s  均值 {sum(gaps) / len(gaps):.1f} s  (共 {len(gaps)} 个间隔)")
+if first_ts and iter_start_ts:
+    lines.append(f"首轮启动耗时(日志首行→首个iter): {(iter_start_ts - first_ts).total_seconds():.0f} s")
+if iter_times:
+    lines.append(f"首个迭代耗时(含编译预热): {iter_times[0]:.1f} s")
+    rest = iter_times[1:]
+    if rest:
+        lines.append(
+            f"每迭代耗时: 中位 {sorted(rest)[len(rest) // 2]:.1f} s  均值 {sum(rest) / len(rest):.1f} s  (共 {len(rest)} 个迭代)"
+        )
 else:
-    lines.append("每迭代耗时: iter 记录不足 2 条，无法计算")
+    lines.append("每迭代耗时: 未找到 Iteration time 记录")
 lines.append(f"原始数据: {out}/")
 
 summary = "\n".join(lines)
