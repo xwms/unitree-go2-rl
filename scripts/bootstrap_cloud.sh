@@ -19,13 +19,15 @@ if [[ ! -d .venv ]]; then
 fi
 uv sync --extra rl
 
-# 2. 下载 unitree_model（USD 模型，来自 HuggingFace）
+# 2. 下载 unitree_model（USD 模型，已迁移到 HuggingFace datasets）
+#    git clone 只拉 LFS 指针文件，必须用 hf download --include 拉真实内容
 MODEL_DIR="$ROOT/stack/unitree_model"
 if [[ -d "$MODEL_DIR/Go2" ]]; then
     echo "[skip] 模型已存在: $MODEL_DIR"
 else
-    uvx --from huggingface_hub huggingface-cli download \
-        unitreerobotics/unitree_model --local-dir "$MODEL_DIR"
+    rm -rf "$MODEL_DIR"
+    uvx --from huggingface_hub hf download unitreerobotics/unitree_model \
+        --repo-type dataset --local-dir "$MODEL_DIR" --include "Go2/*"
 fi
 
 # 3. 把 UNITREE_MODEL_DIR 写入 unitree_rl_lab 配置（幂等，可重复执行）
@@ -34,6 +36,6 @@ sed -i "s|^UNITREE_MODEL_DIR = .*|UNITREE_MODEL_DIR = \"$MODEL_DIR\"  # auto-con
 grep "^UNITREE_MODEL_DIR" "$UNITREE_PY"
 
 # 4. 验证导入
-"$ROOT/.venv/bin/python" -c "import torch, isaaclab; print('[OK] torch', torch.__version__, '| isaaclab', isaaclab.__version__)"
+"$ROOT/.venv/bin/python" -c "import torch, isaaclab; from importlib.metadata import version; print('[OK] torch', torch.__version__, '| isaaclab', version('isaaclab'))"
 
 echo "[OK] 云端部署完成。训练: bash scripts/train_go2.sh"
