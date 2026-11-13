@@ -32,7 +32,7 @@ def reset_root_state_from_stair(
     pyramid envs a uniform ``yaw_range`` of ``(-pi, pi)`` yields fully random headings.
     """
     cache = get_stair_cache(env)
-    root_states = env.scene[asset_cfg.name].data.default_root_state.clone()
+    root_states = env.scene[asset_cfg.name].data.default_root_state[env_ids].clone()
     env_origins = env.scene.env_origins[env_ids]
     root_states[:, :3] += env_origins + cache["spawn_offsets"][env_ids]
     root_states[:, 0] += sample_uniform(*lateral_range, (len(env_ids),), device=env.device)
