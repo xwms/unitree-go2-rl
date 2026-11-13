@@ -107,13 +107,15 @@ def joint_position_limit_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
     return violation.sum(dim=1)
 
 
-def joint_velocity_limit_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
-    """Penalty proportional to the total joint velocity limit violation."""
+def joint_velocity_limit_penalty(env: ManagerBasedRLEnv, soft_ratio: float = 1.0) -> torch.Tensor:
+    """Penalty proportional to the total joint velocity limit violation.
+
+    The 2.3 API exposes soft joint velocity limits as a magnitude per joint
+    (``soft_joint_vel_limits``), not a (lower, upper) pair.
+    """
     robot = env.scene["robot"]
-    limits = robot.data.joint_vel_limits
-    vel = robot.data.joint_vel
-    violation = torch.clip(limits[..., 0] - vel, min=0.0) + torch.clip(vel - limits[..., 1], min=0.0)
-    return violation.sum(dim=1)
+    out_of_limits = robot.data.joint_vel.abs() - robot.data.soft_joint_vel_limits * soft_ratio
+    return torch.clip(out_of_limits, min=0.0, max=1.0).sum(dim=1)
 
 
 def joint_velocity_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
