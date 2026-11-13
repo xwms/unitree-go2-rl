@@ -1,0 +1,11 @@
+.venv/
+.env
+
+# 第三方依赖（各自独立维护，见 README）
+stack/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/

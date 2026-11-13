@@ -1,0 +1,42 @@
+[project]
+name = "go2-stack"
+version = "0.1.0"
+description = "Go2 训练与仿真一键部署：unitree_sdk2 (C++/Python) + MuJoCo（本地）+ Isaac Lab / Isaac Sim（云端）"
+# 统一 Python 3.11+：isaaclab 2.3.0 / isaacsim 5.1.0 只有 cp311+ wheel
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+]
+
+[project.optional-dependencies]
+# 本地仿真（MuJoCo）：纯 wheel，直接 uv sync 即可
+sim = [
+    "mujoco>=3.1,<4",
+]
+# 真机通信：unitree-sdk2py 依赖 cyclonedds==0.10.2（无 cp311 wheel），
+# 需先跑 scripts/bootstrap_robot.sh（编译 C 版 CycloneDDS 并设置 CYCLONEDDS_HOME）
+robot = [
+    "unitree-sdk2py",
+]
+# 云端（Isaac 训练）：官方搭配 Isaac Lab 2.3.0 + Isaac Sim 5.1.0，约需 30G+ 磁盘
+rl = [
+    "isaaclab[all]==2.3.0",
+    "isaacsim[all,extscache]==5.1.0",
+    "unitree-rl-lab",
+]
+
+[tool.uv.sources]
+unitree-sdk2py = { path = "stack/unitree_sdk2_python", editable = true }
+unitree-rl-lab = { path = "stack/unitree_rl_lab/source/unitree_rl_lab", editable = true }
+
+[[tool.uv.index]]
+# isaacsim-* 及其传递依赖只存在于 pypi.nvidia.com，必须用隐式索引
+# （不能 explicit=true，否则解析不到 isaacsim 的传递依赖）。
+# uv 按顺序搜索：先默认 PyPI，后 NVIDIA。
+name = "nvidia-pypi"
+url = "https://pypi.nvidia.com"
+
+[tool.uv.extra-build-dependencies]
+# flatdict 4.0.1（isaaclab 依赖）的 setup.py 用了 pkg_resources；
+# 新版 setuptools（>=81）已移除 pkg_resources，必须锁旧版
+flatdict = ["setuptools<81"]
