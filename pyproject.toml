@@ -6,6 +6,7 @@ description = "Go2 训练与仿真一键部署：unitree_sdk2 (C++/Python) + MuJ
 requires-python = ">=3.11"
 dependencies = [
     "numpy",
+    "go2-stair",
 ]
 
 [project.optional-dependencies]
@@ -28,6 +29,7 @@ rl = [
 [tool.uv.sources]
 unitree-sdk2py = { path = "stack/unitree_sdk2_python", editable = true }
 unitree-rl-lab = { path = "stack/unitree_rl_lab/source/unitree_rl_lab", editable = true }
+go2-stair = { path = "src/go2_stair", editable = true }
 
 [[tool.uv.index]]
 # isaacsim-* 及其传递依赖只存在于 pypi.nvidia.com，必须用隐式索引

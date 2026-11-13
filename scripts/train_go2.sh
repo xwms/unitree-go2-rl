@@ -6,6 +6,7 @@
 #   TASK=Unitree-Go2-Velocity bash scripts/train_go2.sh      # 换任务
 #   bash scripts/train_go2.sh play                           # 演示已训练模型（需要显示，可加 --headless --video）
 #   bash scripts/train_go2.sh play --checkpoint <ckpt文件>
+# 楼梯攀爬两阶段任务（Unitree-Go2-Stair-Stage1/2）请用 scripts/train_stair.sh
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"

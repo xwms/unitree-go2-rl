@@ -874,6 +874,7 @@ name = "go2-stack"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "go2-stair" },
     { name = "numpy" },
 ]
 
@@ -892,6 +893,7 @@ sim = [
 
 [package.metadata]
 requires-dist = [
+    { name = "go2-stair", editable = "src/go2_stair" },
     { name = "isaaclab", extras = ["all"], marker = "extra == 'rl'", specifier = "==2.3.0" },
     { name = "isaacsim", extras = ["all", "extscache"], marker = "extra == 'rl'", specifier = "==5.1.0" },
     { name = "mujoco", marker = "extra == 'sim'", specifier = ">=3.1,<4" },
@@ -900,6 +902,17 @@ requires-dist = [
     { name = "unitree-sdk2py", marker = "extra == 'robot'", editable = "stack/unitree_sdk2_python" },
 ]
 provides-extras = ["sim", "robot", "rl"]
+
+[[package]]
+name = "go2-stair"
+version = "0.1.0"
+source = { editable = "src/go2_stair" }
+dependencies = [
+    { name = "numpy" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "numpy" }]
 
 [[package]]
 name = "grpcio"

@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools", "wheel", "toml"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "go2-stair"
+version = "0.1.0"
+description = "Go2 two-stage stair climbing/descending RL tasks (arXiv 2602.03087v2)."
+dependencies = [
+    "numpy",
+]
+requires-python = ">=3.11"
+license = { text = "BSD-3-Clause" }
