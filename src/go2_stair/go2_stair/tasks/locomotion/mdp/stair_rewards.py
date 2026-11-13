@@ -137,7 +137,7 @@ def leg_contact_penalty(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg, thre
     """
     sensor: ContactSensor = env.scene[sensor_cfg.name]
     force = sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids]
-    return (torch.norm(force, dim=-1).max(dim=1).values > threshold).float()
+    return (torch.norm(force, dim=-1).max(dim=1).values.max(dim=1).values > threshold).float()
 
 
 def flying_penalty(
@@ -145,7 +145,7 @@ def flying_penalty(
 ) -> torch.Tensor:
     """Penalty while all feet are airborne for longer than the threshold (returns 1.0)."""
     sensor: ContactSensor = env.scene[sensor_cfg.name]
-    foot_air_time = sensor.data.air_time[:, sensor_cfg.body_ids]
+    foot_air_time = sensor.data.current_air_time[:, sensor_cfg.body_ids]
     return (foot_air_time.min(dim=1).values > air_time_threshold).float()
 
 
