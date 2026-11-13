@@ -30,8 +30,8 @@ class StairPoseCommandCfg(CommandTermCfg):
     goal_radius: float = 2.2
     """Radius of the goal sampling disk in pyramid mode (in m)."""
 
-    resampling_time_range: tuple[float, float] = (float("inf"), float("inf"))
-    """The goal is held for the whole episode and resampled on reset."""
+    resampling_time_range: tuple[float, float] = (20.0, 20.0)
+    """Time between resamplings; the env cfg overrides this with the episode length."""
 
     def __post_init__(self):
         # late binding: the command class is defined below

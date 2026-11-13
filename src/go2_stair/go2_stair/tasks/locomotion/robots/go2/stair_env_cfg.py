@@ -351,6 +351,9 @@ class StairEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.physics_material = self.scene.terrain.physics_material
         self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
 
+        # hold the same goal for the whole episode (resample only on reset)
+        self.commands.goal_command.resampling_time_range = (self.episode_length_s, self.episode_length_s)
+
         # update sensor update periods (tick at the control rate)
         self.scene.contact_forces.update_period = self.sim.dt
         for scanner_name in ("height_scanner", "FL_foot_scanner", "FR_foot_scanner", "RL_foot_scanner", "RR_foot_scanner"):
