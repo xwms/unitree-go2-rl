@@ -47,11 +47,13 @@ trap - EXIT
 
 "$ROOT/.venv/bin/python" - "$OUT" <<'PY'
 import csv
+import os
 import re
 import sys
 from datetime import datetime
 
 out = sys.argv[1]
+MEM_OFFSET_MB = int(os.environ.get("MEM_OFFSET_MB", "1024"))  # 共享卡底噪，随其他租户变化
 
 utils, mems = [], []
 with open(f"{out}/gpu.csv") as f:
@@ -83,14 +85,12 @@ for line in open(f"{out}/train.log", errors="ignore"):
 def stats(xs):
     return (sum(xs) / len(xs), max(xs)) if xs else (0.0, 0.0)
 
-MEM_OFFSET_MB = 5120  # 共享卡固定底噪，从读数中扣除
-
 lines = []
 lines.append("== 基线汇总 ==")
 lines.append(f"样本数: gpu={len(utils)}  cpu={len(cpus)}")
 g_avg, g_peak = stats(utils)
 lines.append(f"GPU 利用率: 平均 {g_avg:.1f}%  峰值 {g_peak:.1f}%")
-lines.append(f"显存占用: 峰值 {(max(mems) - MEM_OFFSET_MB) / 1024:.2f} GB（已扣 5GB 底噪）" if mems else "显存: 无数据")
+lines.append(f"显存占用: 峰值 {(max(mems) - MEM_OFFSET_MB) / 1024:.2f} GB（已扣 {MEM_OFFSET_MB / 1024:g} GB 底噪）" if mems else "显存: 无数据")
 t_avg, t_peak = stats(cpus)
 lines.append(f"CPU 整体(全核平均): 平均 {t_avg:.1f}%  峰值 {t_peak:.1f}%")
 c_avg, c_peak = stats(cores)
