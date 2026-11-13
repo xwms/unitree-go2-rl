@@ -19,11 +19,9 @@ def _stair_buffers(env: ManagerBasedRLEnv) -> dict:
     """Lazily create per-env history buffers shared by the reward terms."""
     bufs = getattr(env, "_stair_rw_buffers", None)
     if bufs is None:
-        robot = env.scene["robot"]
         bufs = {
             "prev_progress": torch.zeros(env.num_envs, device=env.device),
             "prev_touch": torch.zeros(env.num_envs, dtype=torch.bool, device=env.device),
-            "prev_joint_vel": torch.zeros_like(robot.data.joint_vel),
         }
         env._stair_rw_buffers = bufs
     return bufs
@@ -61,9 +59,10 @@ def centerline_reward(env: ManagerBasedRLEnv, sigma: float = 0.5) -> torch.Tenso
 
 
 def path_progress_reward(
-    env: ManagerBasedRLEnv, dt: float, sigma: float = 2.0, max_progress: float = 1.5
+    env: ManagerBasedRLEnv, dt: float | None = None, sigma: float = 2.0, max_progress: float = 1.5
 ) -> torch.Tensor:
     """Path reward: arc-length progress along the centerline, modulated by the center term."""
+    dt = env.step_dt if dt is None else dt
     cache = get_stair_cache(env)
     bufs = _stair_buffers(env)
     arc, lat = project_to_centerline(env, cache, env.scene["robot"].data.root_pos_w[:, :2])
@@ -93,8 +92,9 @@ def stationary_power_penalty(env: ManagerBasedRLEnv, speed_threshold: float = 0.
     return power * stationary
 
 
-def action_rate_penalty(env: ManagerBasedRLEnv, dt: float) -> torch.Tensor:
+def action_rate_penalty(env: ManagerBasedRLEnv, dt: float | None = None) -> torch.Tensor:
     """Penalty on the squared action change rate."""
+    dt = env.step_dt if dt is None else dt
     return torch.sum(torch.square(env.action_manager.action - env.action_manager.prev_action), dim=1) / dt
 
 
@@ -121,14 +121,10 @@ def joint_velocity_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
     return torch.sum(torch.square(env.scene["robot"].data.joint_vel), dim=1)
 
 
-def joint_acceleration_penalty(env: ManagerBasedRLEnv, dt: float) -> torch.Tensor:
+def joint_acceleration_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Penalty on the squared joint accelerations."""
     robot = env.scene["robot"]
-    bufs = _stair_buffers(env)
-    acc = (robot.data.joint_vel - bufs["prev_joint_vel"]) / dt
-    bufs["prev_joint_vel"][:] = robot.data.joint_vel
-    bufs["prev_joint_vel"][env.reset_terminated] = 0.0
-    return torch.sum(torch.square(acc), dim=1)
+    return torch.sum(torch.square(robot.data.joint_acc), dim=1)
 
 
 def leg_contact_penalty(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg, threshold: float = 1.0) -> torch.Tensor:
