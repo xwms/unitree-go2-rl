@@ -37,7 +37,7 @@ trap 'kill "$MON_PID" 2>/dev/null || true' EXIT
 echo "[record_baseline] 结果目录: $OUT"
 echo "[record_baseline] 训练输出见: $OUT/train.log"
 
-bash "$ROOT/scripts/train_stair.sh" "$@" 2>&1 | tee "$OUT/train.log"
+PYTHONUNBUFFERED=1 bash "$ROOT/scripts/train_stair.sh" "$@" 2>&1 | tee "$OUT/train.log"
 
 kill "$MON_PID" 2>/dev/null || true
 wait "$MON_PID" 2>/dev/null || true
