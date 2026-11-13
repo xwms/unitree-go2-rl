@@ -17,9 +17,16 @@ class StairPPORunnerCfg(BasePPORunnerCfg):
     stage 1 checkpoint.
     """
 
+    # rsl-rl 3.x requires obs_groups (hydra rejects MISSING values); the env exposes a
+    # single concatenated "policy" observation group that both heads consume
+    obs_groups = {"policy": ["policy"], "critic": ["policy"]}
+    empirical_normalization = None  # deprecated in rsl-rl 3.x; per-head flags below
+
     policy = RslRlPpoActorCriticCfg(
         class_name="HeightmapActorCritic",
         init_noise_std=1.0,
+        actor_obs_normalization=False,
+        critic_obs_normalization=False,
         actor_hidden_dims=[128, 128, 64],
         critic_hidden_dims=[128, 128, 64],
         activation="elu",

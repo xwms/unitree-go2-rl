@@ -16,7 +16,7 @@ import torch
 import torch.nn as nn
 
 from rsl_rl.modules import ActorCritic
-from rsl_rl.utils import get_activation
+from rsl_rl.utils import resolve_nn_activation
 
 HEIGHTMAP_ROWS = 21
 HEIGHTMAP_COLS = 21
@@ -54,31 +54,42 @@ class _HeightmapHead(nn.Module):
 
 
 class HeightmapActorCritic(ActorCritic):
-    """Actor-critic whose actor and critic share a CNN height map encoder."""
+    """Actor-critic whose actor and critic share a CNN height map encoder.
+
+    The rsl-rl 3.x constructor receives the observation dict and group mapping; both
+    heads consume the full "policy" group (proprio + height map concatenated).
+    """
 
     is_recurrent = False
 
     def __init__(
         self,
-        num_obs: int,
-        num_privileged_obs: int | None,
+        obs,
+        obs_groups,
         num_actions: int,
-        init_noise_std: float = 1.0,
+        actor_obs_normalization: bool = False,
+        critic_obs_normalization: bool = False,
         actor_hidden_dims: list[int] = [128, 128, 64],
         critic_hidden_dims: list[int] = [128, 128, 64],
         activation: str = "elu",
+        init_noise_std: float = 1.0,
+        noise_std_type: str = "scalar",
         **kwargs,
     ):
         super().__init__(
-            num_obs,
-            num_privileged_obs,
+            obs,
+            obs_groups,
             num_actions,
-            actor_hidden_dims,
-            activation,
-            init_noise_std,
+            actor_obs_normalization=actor_obs_normalization,
+            critic_obs_normalization=critic_obs_normalization,
+            actor_hidden_dims=actor_hidden_dims,
+            critic_hidden_dims=critic_hidden_dims,
+            activation=activation,
+            init_noise_std=init_noise_std,
+            noise_std_type=noise_std_type,
             **kwargs,
         )
-        act = get_activation(activation)
+        act = resolve_nn_activation(activation)
         # shared CNN encoder: 3 conv layers 8 -> 16 -> 32 with 2x2 max pooling,
         # adaptive average pooling to a 2x2 grid -> 128-dim encoding
         self.cnn_encoder = nn.Sequential(
