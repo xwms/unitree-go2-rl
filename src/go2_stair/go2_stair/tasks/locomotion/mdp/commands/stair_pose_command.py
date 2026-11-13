@@ -78,7 +78,7 @@ class StairPoseCommand(CommandTerm):
         env_ids = env_ids.to(self.device)
         # keep the command for the whole episode
         self.time_left[env_ids] = float("inf")
-        cache = get_stair_cache(self.env)
+        cache = get_stair_cache(self._env)
 
         if self.cfg.goal_mode == "stairs":
             stair_envs = env_ids[cache["is_stair"][env_ids]]
@@ -99,8 +99,8 @@ class StairPoseCommand(CommandTerm):
             ang = torch.rand(len(pyr_envs), device=self.device) * 2.0 * math.pi
             dx = r * torch.cos(ang)
             dy = r * torch.sin(ang)
-            self.pos_command_w[pyr_envs, 0] = self.env.scene.env_origins[pyr_envs, 0] + dx
-            self.pos_command_w[pyr_envs, 1] = self.env.scene.env_origins[pyr_envs, 1] + dy
+            self.pos_command_w[pyr_envs, 0] = self._env.scene.env_origins[pyr_envs, 0] + dx
+            self.pos_command_w[pyr_envs, 1] = self._env.scene.env_origins[pyr_envs, 1] + dy
             # local pyramid surface height for the sampled point
             cheb = torch.maximum(dx.abs(), dy.abs())
             k = torch.floor((cache["pyramid_half"][pyr_envs] - cheb) / cache["pyramid_step_width"][pyr_envs]).clamp(
