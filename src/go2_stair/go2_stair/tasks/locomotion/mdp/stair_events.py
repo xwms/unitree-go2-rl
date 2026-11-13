@@ -9,7 +9,7 @@ from dataclasses import MISSING
 from typing import TYPE_CHECKING
 
 from isaaclab.assets import ArticulationCfg
-from isaaclab.utils.math import quat_from_angle_axis, torch_rand_float
+from isaaclab.utils.math import quat_from_angle_axis, sample_uniform
 
 from .stair_cache import get_stair_cache
 
@@ -38,8 +38,8 @@ def reset_root_state_from_stair(
     root_states = env.scene[asset_cfg.name].data.default_root_state.clone()
     env_origins = env.scene.env_origins[env_ids]
     root_states[:, :3] += env_origins + cache["spawn_offsets"][env_ids]
-    root_states[:, 0] += torch_rand_float(*lateral_range, (len(env_ids), 1), device=env.device)
-    root_states[:, 1] += torch_rand_float(*lateral_range, (len(env_ids), 1), device=env.device)
-    yaw = cache["spawn_yaws"][env_ids] + torch_rand_float(*yaw_range, (len(env_ids),), device=env.device)
+    root_states[:, 0] += sample_uniform(*lateral_range, (len(env_ids), 1), device=env.device)
+    root_states[:, 1] += sample_uniform(*lateral_range, (len(env_ids), 1), device=env.device)
+    yaw = cache["spawn_yaws"][env_ids] + sample_uniform(*yaw_range, (len(env_ids),), device=env.device)
     root_states[:, 3:7] = quat_from_angle_axis(yaw, Z_AXIS.repeat(len(env_ids), 1).to(env.device))
     env.scene[asset_cfg.name].write_root_state_to_sim(root_states, env_ids)
