@@ -17,22 +17,27 @@ def stair_terrain_levels(
     env_ids: Sequence[int],
     command_name: str = "goal_command",
     success_tolerance: float = 0.35,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> torch.Tensor:
     """Terrain curriculum: level up when the goal is reached, down when the robot falls.
 
     Goal reached: 3-D position error below ``success_tolerance``. Fallen: episode terminated
     for a reason other than time-out (and not by reaching the goal).
+
+    Follows the 2.3 convention: the term updates the terrain levels itself via
+    ``terrain.update_env_origins`` and returns the mean level as a scalar.
     """
+    terrain = env.scene.terrain
     cmd = env.command_manager.get_term(command_name)
     pos_error = torch.norm(cmd.pos_command_w[env_ids] - env.scene["robot"].data.root_pos_w[env_ids], dim=1)
     # reset_terminated/reset_time_outs only exist after the first env step; on the very
     # first reset the commands have not been resampled yet, so no curriculum change
     if getattr(env, "reset_terminated", None) is None:
-        return torch.zeros_like(pos_error, dtype=torch.bool), torch.zeros_like(pos_error, dtype=torch.bool)
+        return torch.mean(terrain.terrain_levels.float())
     move_up = pos_error < success_tolerance
     move_down = env.reset_terminated[env_ids] & ~env.reset_time_outs[env_ids]
     move_down = move_down & ~move_up
-    return move_up, move_down
+    terrain.update_env_origins(env_ids, move_up, move_down)
+    return torch.mean(terrain.terrain_levels.float())
 
 
 def goal_reached(
