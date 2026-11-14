@@ -58,6 +58,7 @@ class StairPoseCommand(CommandTerm):
         self.heading_command_w = torch.zeros(self.num_envs, device=self.device)
         # metrics
         self.metrics["error_pos_2d"] = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["error_pos_z"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["error_heading"] = torch.zeros(self.num_envs, device=self.device)
 
     def __str__(self) -> str:
@@ -121,6 +122,7 @@ class StairPoseCommand(CommandTerm):
         """Compute the 2-D position and heading errors toward the goal."""
         root_pos = self.robot.data.root_pos_w
         self.metrics["error_pos_2d"][:] = torch.norm(self.pos_command_w[:, :2] - root_pos[:, :2], dim=1)
+        self.metrics["error_pos_z"][:] = torch.abs(self.pos_command_w[:, 2] - root_pos[:, 2])
         self.metrics["error_heading"][:] = torch.abs(
             wrap_to_pi(self.heading_command_w - self.robot.data.heading_w)
         )

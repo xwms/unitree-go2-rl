@@ -257,10 +257,10 @@ class StairRewardsCfg:
         weight=-8.0,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_thigh"), "threshold": 1.0},
     )
-    shank_foot_collision = RewTerm(
+    shank_collision = RewTerm(
         func=mdp.leg_contact_penalty,
         weight=-0.2,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=[".*_calf", ".*_foot"]), "threshold": 1.0},
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_calf"), "threshold": 1.0},
     )
     flying = RewTerm(
         func=mdp.flying_penalty,
@@ -283,6 +283,11 @@ class StairStage1RewardsCfg(StairRewardsCfg):
     )
     nav_fine = RewTerm(
         func=mdp.nav_progress_reward, weight=1.0, params={"command_name": "goal_command", "sigma": 1.0}
+    )
+    # precision term: steep gradient only within ~0.5 m of the goal, so the policy has
+    # an incentive to cross the 0.35 m success radius instead of hovering outside it
+    nav_tight = RewTerm(
+        func=mdp.nav_progress_reward, weight=1.0, params={"command_name": "goal_command", "sigma": 0.3}
     )
     heading = RewTerm(func=mdp.heading_error_penalty, weight=-0.3, params={"command_name": "goal_command"})
 
