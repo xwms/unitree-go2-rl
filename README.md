@@ -76,7 +76,7 @@ cp scripts/register_bridge.py \
 bash scripts/bootstrap_cloud.sh
 
 # 5. 验证任务注册
-.venv/bin/python stack/unitree_rl_lab/scripts/rsl_rl/list_envs.py
+.venv/bin/python stack/unitree_rl_lab/scripts/list_envs.py
 ```
 
 看到 `Unitree-Go2-Stair-Stage1/Stage2` 即部署成功。训练（楼梯两阶段任务）：
