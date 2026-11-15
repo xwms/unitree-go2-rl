@@ -17,6 +17,7 @@ EVAL_PY="$ROOT/src/go2_stair/go2_stair/scripts/eval_stair.py"
 STAGE1_TASK="Unitree-Go2-Stair-Stage1"
 STAGE2_TASK="Unitree-Go2-Stair-Stage2"
 STAGE1_EXP="go2_stair_stage1"
+STAGE2_EXP="go2_stair_stage2"
 
 latest_run() {
     ls -dt "$ROOT/logs/rsl_rl/$1"/*/ 2>/dev/null | head -n 1 | sed 's:/$::'
@@ -60,5 +61,17 @@ if [[ -z "$STAGE1_RUN" ]]; then
     echo "错误: 未找到 Stage1 训练记录 (logs/rsl_rl/$STAGE1_EXP)" >&2
     exit 1
 fi
-echo "==> Stage2 训练: $STAGE2_TASK（从 Stage1 checkpoint 续训: $STAGE1_RUN）"
-exec "$PY" "$RSL_RL_DIR/train.py" --task "$STAGE2_TASK" --headless --resume --load_run "$STAGE1_RUN" "$@"
+# rsl-rl 的 --load_run 只接受本实验目录下的 run 名（正则匹配），不接受绝对路径；
+# 把 Stage1 最新 checkpoint 拷到 Stage2 实验目录下的 _warmstart_stage1，
+# 同时让 get_checkpoint_path 需要的实验目录存在
+STAGE1_CKPT="$(ls "$STAGE1_RUN"/model_*.pt 2>/dev/null | sort -V | tail -n 1)"
+if [[ -z "$STAGE1_CKPT" ]]; then
+    echo "错误: Stage1 run 目录里没有 checkpoint: $STAGE1_RUN" >&2
+    exit 1
+fi
+WARM_DIR="$ROOT/logs/rsl_rl/$STAGE2_EXP/_warmstart_stage1"
+mkdir -p "$WARM_DIR"
+cp "$STAGE1_CKPT" "$WARM_DIR/"
+echo "==> Stage2 训练: $STAGE2_TASK（从 Stage1 checkpoint 续训: $STAGE1_CKPT）"
+exec "$PY" "$RSL_RL_DIR/train.py" --task "$STAGE2_TASK" --headless --resume \
+    --load_run "_warmstart_stage1" --checkpoint "$(basename "$STAGE1_CKPT")" "$@"
