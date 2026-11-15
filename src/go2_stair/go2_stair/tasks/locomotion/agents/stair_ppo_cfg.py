@@ -32,6 +32,12 @@ class StairPPORunnerCfg(BasePPORunnerCfg):
         activation="elu",
     )
 
+    def __post_init__(self):
+        super().__post_init__()
+        # the default 0.01 entropy bonus kept action noise high (std drifted to 1.06),
+        # which blocks precise goal positioning; lower it so the policy can settle
+        self.algorithm.entropy_coef = 0.003
+
 
 @configclass
 class StairStage1PPORunnerCfg(StairPPORunnerCfg):

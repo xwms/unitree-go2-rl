@@ -287,7 +287,7 @@ class StairStage1RewardsCfg(StairRewardsCfg):
     # precision term: steep gradient only within ~0.5 m of the goal, so the policy has
     # an incentive to cross the 0.35 m success radius instead of hovering outside it
     nav_tight = RewTerm(
-        func=mdp.nav_progress_reward, weight=1.0, params={"command_name": "goal_command", "sigma": 0.3}
+        func=mdp.nav_progress_reward, weight=2.0, params={"command_name": "goal_command", "sigma": 0.3}
     )
     heading = RewTerm(func=mdp.heading_error_penalty, weight=-0.3, params={"command_name": "goal_command"})
 
