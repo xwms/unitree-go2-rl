@@ -301,9 +301,14 @@ class StairStage2RewardsCfg(StairRewardsCfg):
     nav_fine = RewTerm(
         func=mdp.nav_progress_reward, weight=1.0, params={"command_name": "goal_command", "sigma": 1.0}
     )
-    # goal_reached requires yaw error < 0.45 rad; without this term the heading
-    # drifts freely (observed 1.17 rad) and blocks the success criterion
-    heading = RewTerm(func=mdp.heading_error_penalty, weight=-0.3, params={"command_name": "goal_command"})
+    # goal_reached requires yaw error < 0.45 rad; the heading is only shaped on
+    # the final approach (within 1 m of the goal), which is where the error was
+    # stuck at ~0.63 rad during the climb
+    heading = RewTerm(
+        func=mdp.heading_error_penalty,
+        weight=-1.0,
+        params={"command_name": "goal_command", "near_radius": 1.0},
+    )
 
 
 # -----------------------------------------------------------------------------

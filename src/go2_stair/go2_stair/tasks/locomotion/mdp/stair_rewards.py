@@ -39,10 +39,20 @@ def nav_progress_reward(env: ManagerBasedRLEnv, command_name: str = "goal_comman
     return 1.0 - torch.tanh(d / sigma)
 
 
-def heading_error_penalty(env: ManagerBasedRLEnv, command_name: str = "goal_command") -> torch.Tensor:
-    """Penalty proportional to the absolute heading error toward the goal heading."""
+def heading_error_penalty(
+    env: ManagerBasedRLEnv, command_name: str = "goal_command", near_radius: float | None = None
+) -> torch.Tensor:
+    """Penalty proportional to the absolute heading error toward the goal heading.
+
+    If ``near_radius`` is set, the penalty is gated to the final approach: it only
+    applies within that 2-D distance of the goal so the approach heading is shaped
+    without constraining the robot during the climb itself.
+    """
     cmd = env.command_manager.get_term(command_name)
     error = torch.abs(wrap_to_pi(cmd.heading_command_w - env.scene["robot"].data.heading_w))
+    if near_radius is not None:
+        d_xy = torch.norm(cmd.pos_command_w[:, :2] - env.scene["robot"].data.root_pos_w[:, :2], dim=1)
+        error = error * (d_xy < near_radius)
     return error
 
 
