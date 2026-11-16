@@ -4,6 +4,9 @@
 # 第三方依赖（各自独立维护，见 README）
 stack/
 
+# 部署产物
+deploy/
+
 # Python
 __pycache__/
 *.py[cod]
