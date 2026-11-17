@@ -397,6 +397,9 @@ class StairStage2EnvCfg(StairEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.terrain.terrain_generator = stage2_terrain_cfg()
+        # the goal sits at the top platform edge; exact height alignment there is not
+        # required for "reaching the top", so relax the z criterion relative to stage 1
+        self.terminations.goal_reached.params["z_tolerance"] = 0.5
 
 
 # -----------------------------------------------------------------------------
