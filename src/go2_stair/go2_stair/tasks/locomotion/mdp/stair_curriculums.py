@@ -17,23 +17,33 @@ def stair_terrain_levels(
     env_ids: Sequence[int],
     command_name: str = "goal_command",
     success_tolerance: float = 0.35,
+    z_tolerance: float | None = None,
 ) -> torch.Tensor:
     """Terrain curriculum: level up when the goal is reached, down when the robot falls.
 
-    Goal reached: 3-D position error below ``success_tolerance``. Fallen: episode terminated
-    for a reason other than time-out (and not by reaching the goal).
+    With ``z_tolerance=None`` the goal is reached when the 3-D position error drops below
+    ``success_tolerance``. With a value set, the check mirrors :func:`goal_reached`
+    (2-D error and z error separately) so the curriculum advances under exactly the same
+    conditions that terminate the episode as a success. Fallen: episode terminated for a
+    reason other than time-out (and not by reaching the goal).
 
     Follows the 2.3 convention: the term updates the terrain levels itself via
     ``terrain.update_env_origins`` and returns the mean level as a scalar.
     """
     terrain = env.scene.terrain
     cmd = env.command_manager.get_term(command_name)
-    pos_error = torch.norm(cmd.pos_command_w[env_ids] - env.scene["robot"].data.root_pos_w[env_ids], dim=1)
+    root_pos = env.scene["robot"].data.root_pos_w[env_ids]
+    if z_tolerance is None:
+        reached = torch.norm(cmd.pos_command_w[env_ids] - root_pos, dim=1) < success_tolerance
+    else:
+        d_xy = torch.norm(cmd.pos_command_w[env_ids, :2] - root_pos[:, :2], dim=1)
+        d_z = torch.abs(cmd.pos_command_w[env_ids, 2] - root_pos[:, 2])
+        reached = (d_xy < success_tolerance) & (d_z < z_tolerance)
     # reset_terminated/reset_time_outs only exist after the first env step; on the very
     # first reset the commands have not been resampled yet, so no curriculum change
     if getattr(env, "reset_terminated", None) is None:
         return torch.mean(terrain.terrain_levels.float())
-    move_up = pos_error < success_tolerance
+    move_up = reached
     move_down = env.reset_terminated[env_ids] & ~env.reset_time_outs[env_ids]
     move_down = move_down & ~move_up
     terrain.update_env_origins(env_ids, move_up, move_down)

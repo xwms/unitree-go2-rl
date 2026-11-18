@@ -301,6 +301,11 @@ class StairStage2RewardsCfg(StairRewardsCfg):
     nav_fine = RewTerm(
         func=mdp.nav_progress_reward, weight=1.0, params={"command_name": "goal_command", "sigma": 1.0}
     )
+    # precision term: steep gradient only within ~0.5 m of the goal, so the policy
+    # presses the 2-D error under the 0.35 m success radius instead of stopping short
+    nav_tight = RewTerm(
+        func=mdp.nav_progress_reward, weight=2.0, params={"command_name": "goal_command", "sigma": 0.3}
+    )
     # goal_reached requires yaw error < 0.45 rad; the heading is only shaped on
     # the final approach (within 1 m of the goal), which is where the error was
     # stuck at ~0.63 rad during the climb
@@ -400,6 +405,9 @@ class StairStage2EnvCfg(StairEnvCfg):
         # the goal sits at the top platform edge; exact height alignment there is not
         # required for "reaching the top", so relax the z criterion relative to stage 1
         self.terminations.goal_reached.params["z_tolerance"] = 0.5
+        # keep the curriculum in lockstep with goal_reached, otherwise episodes end as
+        # successes that never advance the terrain level
+        self.curriculum.terrain_levels.params["z_tolerance"] = 0.5
 
 
 # -----------------------------------------------------------------------------
