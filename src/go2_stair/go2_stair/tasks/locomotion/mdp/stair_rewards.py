@@ -20,7 +20,7 @@ def _stair_buffers(env: ManagerBasedRLEnv) -> dict:
     bufs = getattr(env, "_stair_rw_buffers", None)
     if bufs is None:
         bufs = {
-            "prev_progress": torch.zeros(env.num_envs, device=env.device),
+            "best_arc": torch.zeros(env.num_envs, device=env.device),
             "prev_touch": torch.zeros(env.num_envs, dtype=torch.bool, device=env.device),
         }
         env._stair_rw_buffers = bufs
@@ -71,15 +71,19 @@ def centerline_reward(env: ManagerBasedRLEnv, sigma: float = 0.5) -> torch.Tenso
 def path_progress_reward(
     env: ManagerBasedRLEnv, dt: float | None = None, sigma: float = 2.0, max_progress: float = 1.5
 ) -> torch.Tensor:
-    """Path reward: arc-length progress along the centerline, modulated by the center term."""
+    """Path reward: arc-length progress along the centerline, modulated by the center term.
+
+    Progress is measured against the best arc length reached so far in the episode:
+    backing up and re-climbing the same stretch cannot farm the reward.
+    """
     dt = env.step_dt if dt is None else dt
     cache = get_stair_cache(env)
     bufs = _stair_buffers(env)
     arc, lat = project_to_centerline(env, cache, env.scene["robot"].data.root_pos_w[:, :2])
-    progress = torch.clip((arc - bufs["prev_progress"]) / dt, min=0.0, max=max_progress)
+    progress = torch.clip((arc - bufs["best_arc"]) / dt, min=0.0, max=max_progress)
     center = torch.exp(-(lat**2) / (2.0 * sigma**2))
-    bufs["prev_progress"][:] = arc
-    bufs["prev_progress"][env.reset_terminated] = 0.0
+    bufs["best_arc"] = torch.maximum(bufs["best_arc"], arc)
+    bufs["best_arc"][env.reset_terminated] = 0.0
     return progress * center
 
 
