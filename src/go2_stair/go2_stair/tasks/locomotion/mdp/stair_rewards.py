@@ -21,6 +21,7 @@ def _stair_buffers(env: ManagerBasedRLEnv) -> dict:
     if bufs is None:
         bufs = {
             "best_arc": torch.zeros(env.num_envs, device=env.device),
+            "topped": torch.zeros(env.num_envs, dtype=torch.bool, device=env.device),
             "prev_touch": torch.zeros(env.num_envs, dtype=torch.bool, device=env.device),
         }
         env._stair_rw_buffers = bufs
@@ -85,6 +86,23 @@ def path_progress_reward(
     bufs["best_arc"] = torch.maximum(bufs["best_arc"], arc)
     bufs["best_arc"][env.reset_terminated] = 0.0
     return progress * center
+
+
+def goal_topped_bonus(env: ManagerBasedRLEnv, margin: float = 0.3) -> torch.Tensor:
+    """One-shot bonus when the robot first climbs onto the final approach of the staircase.
+
+    Fires once per episode when the arc-length projection enters the last ``margin``
+    meters of the centerline, giving an explicit signal that topping the stairs is the
+    objective.
+    """
+    cache = get_stair_cache(env)
+    bufs = _stair_buffers(env)
+    arc, _ = project_to_centerline(env, cache, env.scene["robot"].data.root_pos_w[:, :2])
+    crossed = (arc >= cache["s_end"] - margin) & cache["is_stair"]
+    first = crossed & ~bufs["topped"] & ~env.reset_terminated
+    bufs["topped"] |= crossed
+    bufs["topped"][env.reset_terminated] = False
+    return first.float()
 
 
 # -----------------------------------------------------------------------------

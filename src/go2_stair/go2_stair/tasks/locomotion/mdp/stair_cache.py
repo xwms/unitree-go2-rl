@@ -43,6 +43,7 @@ def _build_stair_tables(env: ManagerBasedRLEnv) -> dict:
     spawn_yaw_tbl = torch.zeros(num_tiles, dtype=torch.float32)
     platform_z_tbl = torch.zeros(num_tiles, dtype=torch.float32)
     goal_radius_tbl = torch.zeros(num_tiles, dtype=torch.float32)
+    s_end_tbl = torch.zeros(num_tiles, dtype=torch.float32)
     pyr_half_tbl = torch.zeros(num_tiles, dtype=torch.float32)
     pyr_step_w_tbl = torch.zeros(num_tiles, dtype=torch.float32)
     pyr_num_steps_tbl = torch.zeros(num_tiles, dtype=torch.float32)
@@ -89,6 +90,7 @@ def _build_stair_tables(env: ManagerBasedRLEnv) -> dict:
             seg_b_local[tid, :n_seg] = b
             cum_arc[tid, 1 : n_seg + 1] = torch.cumsum(sl, dim=0)
             seg_valid[tid, :n_seg] = True
+            s_end_tbl[tid] = cum_arc[tid, n_seg]
 
     return {
         "cfg_id": id(gen_cfg),
@@ -103,6 +105,7 @@ def _build_stair_tables(env: ManagerBasedRLEnv) -> dict:
         "spawn_yaw_tbl": spawn_yaw_tbl.to(device),
         "platform_z_tbl": platform_z_tbl.to(device),
         "goal_radius_tbl": goal_radius_tbl.to(device),
+        "s_end_tbl": s_end_tbl.to(device),
         "pyr_half_tbl": pyr_half_tbl.to(device),
         "pyr_step_w_tbl": pyr_step_w_tbl.to(device),
         "pyr_num_steps_tbl": pyr_num_steps_tbl.to(device),
@@ -152,6 +155,7 @@ def get_stair_cache(env: ManagerBasedRLEnv) -> dict:
         "spawn_yaws": tbl["spawn_yaw_tbl"][tile_ids],
         "platform_z": tbl["platform_z_tbl"][tile_ids],
         "goal_radius": tbl["goal_radius_tbl"][tile_ids],
+        "s_end": tbl["s_end_tbl"][tile_ids],
         "pyramid_half": tbl["pyr_half_tbl"][tile_ids],
         "pyramid_step_width": tbl["pyr_step_w_tbl"][tile_ids],
         "pyramid_num_steps": tbl["pyr_num_steps_tbl"][tile_ids],
