@@ -297,7 +297,14 @@ class StairStage2RewardsCfg(StairRewardsCfg):
     """Stage 2: centerline reward, path reward (modulated by the center term) and fine navigation."""
 
     center = RewTerm(func=mdp.centerline_reward, weight=0.1, params={"sigma": 0.5})
-    path = RewTerm(func=mdp.path_progress_reward, weight=1.9, params={"sigma": 2.0, "max_progress": 1.5})
+    # the progress reward is gated by stair-surface height consistency like the nav
+    # terms below: the xy projection tracks the centerline from the flat ground beside
+    # the staircase, so without the gate a ground-level lap pays most of the climb reward
+    path = RewTerm(
+        func=mdp.path_progress_reward,
+        weight=1.9,
+        params={"sigma": 2.0, "max_progress": 1.5, "z_consistency": 0.13},
+    )
     # the nav terms pay on the 3-D distance to a goal that sits inside the top step, so
     # they are gated by stair-surface height consistency: hugging the last step's outer
     # wall (or crouching below the top edge) must not pay without climbing
@@ -316,8 +323,9 @@ class StairStage2RewardsCfg(StairRewardsCfg):
     # one-shot bonus for first entering the final approach: without it the policy
     # stops 3-4 steps below the top, where nav terms are saturated and path is zero.
     # the height gate keeps the flat ground just past the top edge (which projects
-    # onto the centerline endpoint) from firing the bonus without climbing
-    topped = RewTerm(func=mdp.goal_topped_bonus, weight=5.0, params={"margin": 0.3, "z_tolerance": 0.15})
+    # onto the centerline endpoint) from firing the bonus without climbing; the
+    # tolerance sits below the minimum stair top height (0.14 m at spiral level 0)
+    topped = RewTerm(func=mdp.goal_topped_bonus, weight=5.0, params={"margin": 0.3, "z_tolerance": 0.13})
     # goal_reached requires yaw error < 0.45 rad; the heading is only shaped on
     # the final approach (within 1 m of the goal), which is where the error was
     # stuck at ~0.63 rad during the climb
