@@ -33,11 +33,29 @@ def _stair_buffers(env: ManagerBasedRLEnv) -> dict:
 # -----------------------------------------------------------------------------
 
 
-def nav_progress_reward(env: ManagerBasedRLEnv, command_name: str = "goal_command", sigma: float = 5.0) -> torch.Tensor:
-    """Navigation reward ``r_nav = 1 - tanh(d / sigma)`` with ``d`` the 3-D distance to the goal."""
+def nav_progress_reward(
+    env: ManagerBasedRLEnv, command_name: str = "goal_command", sigma: float = 5.0, z_consistency: float | None = None
+) -> torch.Tensor:
+    """Navigation reward ``r_nav = 1 - tanh(d / sigma)`` with ``d`` the 3-D distance to the goal.
+
+    With ``z_consistency`` set, the reward only pays while the robot's base height matches
+    the stair surface height at its centerline projection. The goal sits inside the top
+    step, so the raw 3-D distance can be minimized by hugging the last step's outer wall
+    (or crouching below the top edge) without ever climbing; the height gate blocks that.
+    """
     cmd = env.command_manager.get_term(command_name)
-    d = torch.norm(cmd.pos_command_w - env.scene["robot"].data.root_pos_w, dim=1)
-    return 1.0 - torch.tanh(d / sigma)
+    robot = env.scene["robot"]
+    d = torch.norm(cmd.pos_command_w - robot.data.root_pos_w, dim=1)
+    reward = 1.0 - torch.tanh(d / sigma)
+    if z_consistency is None:
+        return reward
+    cache = get_stair_cache(env)
+    arc, _ = project_to_centerline(env, cache, robot.data.root_pos_w[:, :2])
+    top = cache["goal_pos"][:, 2] - cache["origins"][:, 2] - cache["robot_default_z"]
+    z_surf = cache["origins"][:, 2] + (arc / cache["s_end"].clamp(min=1e-6)) * top
+    z_robot = robot.data.root_pos_w[:, 2]
+    on_stair = torch.abs(z_robot - (z_surf + cache["robot_default_z"])) < z_consistency
+    return reward * torch.where(cache["is_stair"], on_stair, True)
 
 
 def heading_error_penalty(

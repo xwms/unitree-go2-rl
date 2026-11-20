@@ -298,13 +298,20 @@ class StairStage2RewardsCfg(StairRewardsCfg):
 
     center = RewTerm(func=mdp.centerline_reward, weight=0.1, params={"sigma": 0.5})
     path = RewTerm(func=mdp.path_progress_reward, weight=1.9, params={"sigma": 2.0, "max_progress": 1.5})
+    # the nav terms pay on the 3-D distance to a goal that sits inside the top step, so
+    # they are gated by stair-surface height consistency: hugging the last step's outer
+    # wall (or crouching below the top edge) must not pay without climbing
     nav_fine = RewTerm(
-        func=mdp.nav_progress_reward, weight=1.0, params={"command_name": "goal_command", "sigma": 1.0}
+        func=mdp.nav_progress_reward,
+        weight=1.0,
+        params={"command_name": "goal_command", "sigma": 1.0, "z_consistency": 0.13},
     )
     # precision term: steep gradient within ~1 m of the goal, so the policy presses
     # the 2-D error under the 0.35 m success radius instead of stopping short
     nav_tight = RewTerm(
-        func=mdp.nav_progress_reward, weight=4.0, params={"command_name": "goal_command", "sigma": 0.5}
+        func=mdp.nav_progress_reward,
+        weight=4.0,
+        params={"command_name": "goal_command", "sigma": 0.5, "z_consistency": 0.13},
     )
     # one-shot bonus for first entering the final approach: without it the policy
     # stops 3-4 steps below the top, where nav terms are saturated and path is zero.
