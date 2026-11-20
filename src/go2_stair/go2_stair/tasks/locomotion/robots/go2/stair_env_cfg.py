@@ -307,8 +307,10 @@ class StairStage2RewardsCfg(StairRewardsCfg):
         func=mdp.nav_progress_reward, weight=4.0, params={"command_name": "goal_command", "sigma": 0.5}
     )
     # one-shot bonus for first entering the final approach: without it the policy
-    # stops 3-4 steps below the top, where nav terms are saturated and path is zero
-    topped = RewTerm(func=mdp.goal_topped_bonus, weight=5.0, params={"margin": 0.3})
+    # stops 3-4 steps below the top, where nav terms are saturated and path is zero.
+    # the height gate keeps the flat ground just past the top edge (which projects
+    # onto the centerline endpoint) from firing the bonus without climbing
+    topped = RewTerm(func=mdp.goal_topped_bonus, weight=5.0, params={"margin": 0.3, "z_tolerance": 0.15})
     # goal_reached requires yaw error < 0.45 rad; the heading is only shaped on
     # the final approach (within 1 m of the goal), which is where the error was
     # stuck at ~0.63 rad during the climb
@@ -405,12 +407,13 @@ class StairStage2EnvCfg(StairEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.terrain.terrain_generator = stage2_terrain_cfg()
-        # the goal sits at the top platform edge; exact height alignment there is not
-        # required for "reaching the top", so relax the z criterion relative to stage 1
-        self.terminations.goal_reached.params["z_tolerance"] = 0.5
+        # z must stay below the minimum stair height (0.14 m): the flat ground just
+        # past the top edge sits at d_z = stair height, so a looser tolerance lets
+        # the robot "reach" the goal without ever climbing the stairs
+        self.terminations.goal_reached.params["z_tolerance"] = 0.12
         # keep the curriculum in lockstep with goal_reached, otherwise episodes end as
         # successes that never advance the terrain level
-        self.curriculum.terrain_levels.params["z_tolerance"] = 0.5
+        self.curriculum.terrain_levels.params["z_tolerance"] = 0.12
 
 
 # -----------------------------------------------------------------------------

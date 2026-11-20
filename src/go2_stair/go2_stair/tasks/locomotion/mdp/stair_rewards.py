@@ -88,17 +88,20 @@ def path_progress_reward(
     return progress * center
 
 
-def goal_topped_bonus(env: ManagerBasedRLEnv, margin: float = 0.3) -> torch.Tensor:
+def goal_topped_bonus(env: ManagerBasedRLEnv, margin: float = 0.3, z_tolerance: float = 0.15) -> torch.Tensor:
     """One-shot bonus when the robot first climbs onto the final approach of the staircase.
 
     Fires once per episode when the arc-length projection enters the last ``margin``
-    meters of the centerline, giving an explicit signal that topping the stairs is the
-    objective.
+    meters of the centerline and the robot is near the goal height. The height gate
+    excludes the flat ground just past the top edge, which projects onto the centerline
+    endpoint (full arc length) without any climbing.
     """
     cache = get_stair_cache(env)
     bufs = _stair_buffers(env)
-    arc, _ = project_to_centerline(env, cache, env.scene["robot"].data.root_pos_w[:, :2])
-    crossed = (arc >= cache["s_end"] - margin) & cache["is_stair"]
+    robot = env.scene["robot"]
+    arc, _ = project_to_centerline(env, cache, robot.data.root_pos_w[:, :2])
+    d_z = torch.abs(cache["goal_pos"][:, 2] - robot.data.root_pos_w[:, 2])
+    crossed = (arc >= cache["s_end"] - margin) & (d_z < z_tolerance) & cache["is_stair"]
     first = crossed & ~bufs["topped"] & ~env.reset_terminated
     bufs["topped"] |= crossed
     bufs["topped"][env.reset_terminated] = False
