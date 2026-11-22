@@ -118,8 +118,9 @@ def path_progress_reward(
     progress = torch.clip((arc - bufs["best_arc"]) / dt, min=0.0, max=max_progress)
     center = torch.exp(-(lat**2) / (2.0 * sigma**2))
     reward = progress * center
+    done = env.reset_terminated | env.reset_time_outs
     bufs["best_arc"] = torch.maximum(bufs["best_arc"], arc)
-    bufs["best_arc"][env.reset_terminated] = 0.0
+    bufs["best_arc"][done] = 0.0
     if z_consistency is None:
         return reward
     return reward * _stair_height_gate(env, cache, z_consistency)
@@ -139,10 +140,11 @@ def goal_topped_bonus(env: ManagerBasedRLEnv, margin: float = 0.3, z_tolerance: 
     robot = env.scene["robot"]
     arc, _ = project_to_centerline(env, cache, robot.data.root_pos_w[:, :2])
     d_z = torch.abs(cache["goal_pos"][:, 2] - robot.data.root_pos_w[:, 2])
+    done = env.reset_terminated | env.reset_time_outs
     crossed = (arc >= cache["s_end"] - margin) & (d_z < z_tolerance) & cache["is_stair"]
-    first = crossed & ~bufs["topped"] & ~env.reset_terminated
+    first = crossed & ~bufs["topped"] & ~done
     bufs["topped"] |= crossed
-    bufs["topped"][env.reset_terminated] = False
+    bufs["topped"][done] = False
     return first.float()
 
 
@@ -229,6 +231,7 @@ def step_reward(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg, threshold: f
     touched = (torch.norm(force, dim=-1) > threshold).any(dim=1)
     bufs = _stair_buffers(env)
     reward = (touched & ~bufs["prev_touch"]).float()
+    done = env.reset_terminated | env.reset_time_outs
     bufs["prev_touch"][:] = touched
-    bufs["prev_touch"][env.reset_terminated] = False
+    bufs["prev_touch"][done] = False
     return reward

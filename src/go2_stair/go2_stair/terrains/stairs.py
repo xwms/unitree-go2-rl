@@ -50,7 +50,8 @@ def _lerp(difficulty: float, value_range: tuple[float, float]) -> float:
 def _box(dims: tuple[float, float, float], pos: tuple[float, float, float], yaw: float = 0.0) -> trimesh.Trimesh:
     box = trimesh.creation.box(dims, trimesh.transformations.translation_matrix(pos))
     if yaw != 0.0:
-        box.apply_transform(trimesh.transformations.rotation_matrix(yaw, [0, 0, 1]))
+        # rotate about the box center: apply_transform rotates about the origin by default
+        box.apply_transform(trimesh.transformations.rotation_matrix(yaw, [0, 0, 1], point=pos))
     return box
 
 
@@ -84,6 +85,9 @@ def straight_stairs_terrain(difficulty: float, cfg: "StraightStairsTerrainCfg") 
     for k in range(n):
         top = (k + 1) * sh
         meshes.append(_box((cfg.step_depth, w, top), (x0 + (k + 0.5) * cfg.step_depth, y0, top / 2.0)))
+    # landing behind the last step so the goal does not sit on a drop-off edge
+    top = n * sh
+    meshes.append(_box((cfg.landing_depth, w, top), (x0 + length + cfg.landing_depth / 2.0, y0, top / 2.0)))
     origin = np.array([x0, y0, 0.0])  # stair bottom, ground level
     return meshes, origin
 
@@ -108,6 +112,9 @@ def l_stairs_terrain(difficulty: float, cfg: "LStairsTerrainCfg") -> tuple[list[
     for j in range(n2):
         top = (n1 + j + 1) * sh
         meshes.append(_box((w, d, top), (corner_x, y0 + (j + 0.5) * d, top / 2.0)))
+    # landing behind the last step (at the end of segment 2, or the corner when n2 == 0)
+    top = (n1 + n2) * sh
+    meshes.append(_box((w, cfg.landing_depth, top), (corner_x, y0 + n2 * d + cfg.landing_depth / 2.0, top / 2.0)))
     origin = np.array([x0, y0, 0.0])
     return meshes, origin
 
@@ -126,13 +133,21 @@ def spiral_stairs_terrain(difficulty: float, cfg: "SpiralStairsTerrainCfg") -> t
     for k in range(n_steps):
         alpha = (k + 0.5) * dalpha
         top = (k + 1) * sh
+        # radial extent = stair width, tangential extent = tread depth
         meshes.append(
             _box(
-                (cfg.step_depth, w, top),
+                (w, cfg.step_depth, top),
                 (cx + r_mid * np.cos(alpha), cy + r_mid * np.sin(alpha), top / 2.0),
                 yaw=alpha,
             )
         )
+    # landing along the end tangent so the goal does not sit on a drop-off edge
+    top = n_steps * sh
+    alpha_end = n_steps * dalpha
+    end = np.array([cx + r_mid * np.cos(alpha_end), cy + r_mid * np.sin(alpha_end)])
+    dir_end = np.array([-np.sin(alpha_end), np.cos(alpha_end)])
+    landing_c = end + 0.5 * cfg.landing_depth * dir_end
+    meshes.append(_box((w, cfg.landing_depth, top), (landing_c[0], landing_c[1], top / 2.0), yaw=alpha_end))
     # origin: on the ground, just before the first step (which starts at angle 0)
     origin = np.array([cx + r_mid, cy, 0.0])
     return meshes, origin
@@ -155,6 +170,9 @@ class StairSubTerrainCfg(SubTerrainBaseCfg):
 
     step_depth: float = 0.25
     """Depth of each step / tread length along the centerline (in m)."""
+
+    landing_depth: float = 1.5
+    """Depth of the flat landing behind the last step so the top is not a drop-off edge (in m)."""
 
     def compute_metadata(self, difficulty: float) -> dict:
         raise NotImplementedError
