@@ -148,6 +148,28 @@ def goal_topped_bonus(env: ManagerBasedRLEnv, margin: float = 0.3, z_tolerance: 
     return first.float()
 
 
+def goal_reached_bonus(
+    env: ManagerBasedRLEnv,
+    command_name: str = "goal_command",
+    pos_tolerance: float = 0.35,
+    z_tolerance: float = 0.12,
+    yaw_tolerance: float = 0.45,
+) -> torch.Tensor:
+    """Success payoff on the step the goal condition is met (mirrors the ``goal_reached`` termination).
+
+    Terminating on success pays nothing by itself, while hovering at the goal doorstep
+    collects the dense nav rewards indefinitely, so without this bonus the policy learns
+    to never finish. Return units are ``weight * step_dt``; the weight must exceed the
+    discounted hover value of the nav terms, i.e. ``raw_per_step * step_dt / (1 - gamma)``.
+    """
+    cmd = env.command_manager.get_term(command_name)
+    robot = env.scene["robot"]
+    d_xy = torch.norm(cmd.pos_command_w[:, :2] - robot.data.root_pos_w[:, :2], dim=1)
+    d_z = torch.abs(cmd.pos_command_w[:, 2] - robot.data.root_pos_w[:, 2])
+    yaw_err = torch.abs(wrap_to_pi(cmd.heading_command_w - robot.data.heading_w))
+    return ((d_xy < pos_tolerance) & (d_z < z_tolerance) & (yaw_err < yaw_tolerance)).float()
+
+
 # -----------------------------------------------------------------------------
 # Regularization rewards
 # -----------------------------------------------------------------------------

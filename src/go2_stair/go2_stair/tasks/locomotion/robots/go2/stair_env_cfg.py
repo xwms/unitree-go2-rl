@@ -320,12 +320,22 @@ class StairStage2RewardsCfg(StairRewardsCfg):
         weight=4.0,
         params={"command_name": "goal_command", "sigma": 0.5, "z_consistency": 0.13},
     )
-    # one-shot bonus for first entering the final approach: without it the policy
-    # stops 3-4 steps below the top, where nav terms are saturated and path is zero.
+    # one-shot milestone for first entering the final approach (last 0.3 m of the
+    # centerline at goal height); raw weights are scaled by step_dt in the return, so
+    # 50 = 1 return unit, comparable to ~30 hovering steps at the doorstep
     # the height gate keeps the flat ground just past the top edge (which projects
     # onto the centerline endpoint) from firing the bonus without climbing; the
     # tolerance sits below the minimum stair top height (0.14 m at spiral level 0)
-    topped = RewTerm(func=mdp.goal_topped_bonus, weight=5.0, params={"margin": 0.3, "z_tolerance": 0.13})
+    topped = RewTerm(func=mdp.goal_topped_bonus, weight=50.0, params={"margin": 0.3, "z_tolerance": 0.13})
+    # success payoff: terminating at the goal pays nothing by itself, while hovering
+    # at the doorstep collects the dense nav rewards indefinitely, so without this
+    # bonus the policy learns to never finish; 250 * step_dt = 5 return units exceeds
+    # the discounted hover value of the nav terms (~3)
+    goal = RewTerm(
+        func=mdp.goal_reached_bonus,
+        weight=250.0,
+        params={"command_name": "goal_command", "pos_tolerance": 0.35, "z_tolerance": 0.12, "yaw_tolerance": 0.45},
+    )
     # goal_reached requires yaw error < 0.45 rad; the heading is only shaped on
     # the final approach (within 1 m of the goal), which is where the error was
     # stuck at ~0.63 rad during the climb
