@@ -67,9 +67,10 @@ from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry
 import unitree_rl_lab.tasks  # noqa: F401
 from unitree_rl_lab.utils.parser_cfg import parse_env_cfg
 
-# success tolerances (same as the goal_reached termination)
+# success tolerances (same as the stage-2 goal_reached termination, which overrides
+# the z tolerance to 0.12 so that stopping below the top step does not count)
 POS_TOL = 0.35
-Z_TOL = 0.35
+Z_TOL = 0.12
 YAW_TOL = 0.45
 # training step height range of the curriculum: [0.02, 0.12]
 HEIGHT_MIN, HEIGHT_MAX = 0.02, 0.12
