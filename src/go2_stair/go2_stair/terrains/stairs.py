@@ -8,8 +8,9 @@ sampling and spawn placement can query it at runtime.
 
 All mesh functions follow the Isaac Lab convention: geometry is built in the
 ``(0, 0) - (size[0], size[1])`` frame and ``TerrainGenerator._get_terrain_mesh``
-re-centers it afterwards. The recorded metadata is expressed in the same final,
-tile-centered frame (shifted by ``-size/2`` along x and y).
+re-centers it afterwards. The recorded runtime metadata is expressed relative to the
+terrain origin returned by each mesh function (the stair bottom), because
+``TerrainImporter`` places each environment at that origin, not at the tile center.
 
 The Isaac Lab ``TerrainImporter`` instantiates the generator from
 ``TerrainGeneratorCfg.class_type`` but does not keep a reference to it, so the
@@ -59,11 +60,16 @@ def _ground_slab(size: tuple[float, float]) -> trimesh.Trimesh:
     return _box((size[0], size[1], 0.1), (size[0] / 2.0, size[1] / 2.0, -0.05))
 
 
-def _shift_to_tile_center(points: np.ndarray, size: tuple[float, float]) -> np.ndarray:
-    """Apply the same ``-size/2`` x/y shift that ``TerrainGenerator._get_terrain_mesh`` applies."""
+def _shift_to_origin(points: np.ndarray, origin_xy: tuple[float, float]) -> np.ndarray:
+    """Express points relative to the terrain mesh origin (the stair bottom).
+
+    ``TerrainImporter`` places each environment at the origin returned by the terrain
+    function, not at the tile center, so all runtime metadata (spawn, goal, centerline)
+    must be expressed relative to that origin.
+    """
     shifted = np.array(points, dtype=np.float64)
-    shifted[..., 0] -= size[0] / 2.0
-    shifted[..., 1] -= size[1] / 2.0
+    shifted[..., 0] -= origin_xy[0]
+    shifted[..., 1] -= origin_xy[1]
     return shifted
 
 
@@ -199,13 +205,14 @@ class StraightStairsTerrainCfg(StairSubTerrainCfg):
             [np.linspace(x0, x0 + length, n + 1), np.full(n + 1, y0), sh * np.arange(n + 1)], axis=-1
         )
         spawn_pos = np.array([x0 - 0.5, y0, 0.0])
+        origin_xy = (x0, y0)  # terrain origin returned by straight_stairs_terrain
         return {
             "kind": "straight",
             "step_height": sh,
             "stair_width": w,
-            "centerline": _shift_to_tile_center(centerline, self.size),
+            "centerline": _shift_to_origin(centerline, origin_xy),
             "s_end": float(length),
-            "spawn_pos": _shift_to_tile_center(spawn_pos, self.size),
+            "spawn_pos": _shift_to_origin(spawn_pos, origin_xy),
             "spawn_offset": np.array([-0.5, 0.0, 0.0]),
             "dir": np.array([1.0, 0.0]),
             "dir_end": np.array([1.0, 0.0]),
@@ -242,13 +249,14 @@ class LStairsTerrainCfg(StairSubTerrainCfg):
         )
         centerline = np.concatenate([pts1, pts2[1:]], axis=0)
         spawn_pos = np.array([x0 - 0.5, y0, 0.0])
+        origin_xy = (x0, y0)  # terrain origin returned by l_stairs_terrain
         return {
             "kind": "L",
             "step_height": sh,
             "stair_width": w,
-            "centerline": _shift_to_tile_center(centerline, self.size),
+            "centerline": _shift_to_origin(centerline, origin_xy),
             "s_end": float((n1 + n2) * d),
-            "spawn_pos": _shift_to_tile_center(spawn_pos, self.size),
+            "spawn_pos": _shift_to_origin(spawn_pos, origin_xy),
             "spawn_offset": np.array([-0.5, 0.0, 0.0]),
             "dir": np.array([1.0, 0.0]),
             "dir_end": np.array([0.0, 1.0]),
@@ -282,14 +290,15 @@ class SpiralStairsTerrainCfg(StairSubTerrainCfg):
         )
         # spawn 0.5 m before the first step (which starts at angle 0, tangent along +y)
         spawn_pos = np.array([cx + r_mid, cy - 0.5, 0.0])
+        origin_xy = (cx + r_mid, cy)  # terrain origin returned by spiral_stairs_terrain
         alpha_end = n_steps * dalpha
         return {
             "kind": "spiral",
             "step_height": sh,
             "stair_width": w,
-            "centerline": _shift_to_tile_center(centerline, self.size),
+            "centerline": _shift_to_origin(centerline, origin_xy),
             "s_end": float(n_steps * self.step_depth),
-            "spawn_pos": _shift_to_tile_center(spawn_pos, self.size),
+            "spawn_pos": _shift_to_origin(spawn_pos, origin_xy),
             "spawn_offset": np.array([0.0, -0.5, 0.0]),
             "dir": np.array([0.0, 1.0]),
             "dir_end": np.array([-np.sin(alpha_end), np.cos(alpha_end)]),
