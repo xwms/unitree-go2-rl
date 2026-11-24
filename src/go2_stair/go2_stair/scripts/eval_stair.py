@@ -188,6 +188,26 @@ def evaluate_configuration(env: RslRlVecEnvWrapper, policy, kinds: list[str], ep
     obs = obs[0] if isinstance(obs, tuple) else obs
     pending_reset = torch.zeros(num_envs, dtype=torch.bool, device=device)
 
+    # optional diagnostics (STAIR_EVAL_DEBUG=1): spawn/goal wiring, flush samples and
+    # per-kind termination counts for the first steps
+    debug = os.environ.get("STAIR_EVAL_DEBUG", "") == "1"
+    debug_state = {"step": 0, "flush": 0}
+    if debug:
+        from go2_stair.tasks.locomotion.mdp.stair_cache import get_stair_cache
+
+        cache = get_stair_cache(unwrapped)
+        print("[debug] terrain_types[:12]:", kind_index[:12].tolist())
+        for ki, name in enumerate(kinds):
+            i = int((kind_index == ki).nonzero(as_tuple=False).flatten()[0])
+            print(
+                f"[debug] {name}: env={i} origin={unwrapped.scene.env_origins[i].tolist()} "
+                f"spawn_off={cache['spawn_offsets'][i].tolist()} "
+                f"root={robot.data.root_pos_w[i].tolist()} "
+                f"goal={cmd_term.pos_command_w[i].tolist()} "
+                f"goal_heading={float(cmd_term.heading_command_w[i]):.3f} "
+                f"heading={float(robot.data.heading_w[i]):.3f}"
+            )
+
     def finish_episodes(done_mask: torch.Tensor, success_mask: torch.Tensor):
         """Flush finalized episodes into the per-kind statistics."""
         nonlocal stats
@@ -199,6 +219,13 @@ def evaluate_configuration(env: RslRlVecEnvWrapper, policy, kinds: list[str], ep
             s["n_episodes"] += 1
             if success_mask[i]:
                 s["n_succ"] += 1
+            if debug and debug_state["flush"] < 12:
+                print(
+                    f"[debug flush] {name} succ={bool(success_mask[i])} t={float(acc_time[i]):.2f}s "
+                    f"lin={float(acc_lin[i] / acc_time[i].clamp(min=dt)):.3f} "
+                    f"pos_err={float(last_pos_err[i]):.3f}"
+                )
+                debug_state["flush"] += 1
             s["lin"].append(float(acc_lin[i] / acc_time[i].clamp(min=dt)))
             s["vert"].append(float(acc_vert[i] / acc_time[i].clamp(min=dt)))
             s["pos"].append(float(last_pos_err[i]))
@@ -248,6 +275,17 @@ def evaluate_configuration(env: RslRlVecEnvWrapper, policy, kinds: list[str], ep
             if failed.any():
                 finish_episodes(failed, torch.zeros_like(failed))
                 finalized[failed] = True
+            if debug and debug_state["step"] < 25:
+                for ki, name in enumerate(kinds):
+                    ids = kind_index == ki
+                    print(
+                        f"[debug step {debug_state['step']}] {name}: "
+                        f"dones={int((dones[ids] > 0).sum())}/{int(ids.sum())} "
+                        f"term={int(unwrapped.reset_terminated[ids].sum())} "
+                        f"tout={int(unwrapped.reset_time_outs[ids].sum())} "
+                        f"root0_z={float(robot.data.root_pos_w[int(ids.nonzero(as_tuple=False).flatten()[0]), 2]):.3f}"
+                    )
+                debug_state["step"] += 1
 
     # aggregate and write CSV
     totals = {"lin": [], "vert": [], "pos": [], "heading": [], "power": []}
