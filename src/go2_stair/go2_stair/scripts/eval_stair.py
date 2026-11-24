@@ -197,8 +197,17 @@ def evaluate_configuration(env: RslRlVecEnvWrapper, policy, kinds: list[str], ep
 
         cache = get_stair_cache(unwrapped)
         print("[debug] terrain_types[:12]:", kind_index[:12].tolist())
+        goal_d_xy = torch.norm(cmd_term.pos_command_w[:, :2] - robot.data.root_pos_w[:, :2], dim=1)
+        goal_d_z = torch.abs(cmd_term.pos_command_w[:, 2] - robot.data.root_pos_w[:, 2])
         for ki, name in enumerate(kinds):
-            i = int((kind_index == ki).nonzero(as_tuple=False).flatten()[0])
+            ids = (kind_index == ki).nonzero(as_tuple=False).flatten()
+            i = int(ids[0])
+            near = int((goal_d_xy[ids] < 0.5).sum())
+            print(
+                f"[debug] {name}: envs={len(ids)} spawn_d_xy_min={float(goal_d_xy[ids].min()):.2f} "
+                f"max={float(goal_d_xy[ids].max()):.2f} spawn_d_z_min={float(goal_d_z[ids].min()):.2f} "
+                f"max={float(goal_d_z[ids].max()):.2f} spawn_within_0.5m_of_goal={near}"
+            )
             print(
                 f"[debug] {name}: env={i} origin={unwrapped.scene.env_origins[i].tolist()} "
                 f"spawn_off={cache['spawn_offsets'][i].tolist()} "
@@ -221,9 +230,11 @@ def evaluate_configuration(env: RslRlVecEnvWrapper, policy, kinds: list[str], ep
                 s["n_succ"] += 1
             if debug and debug_state["flush"] < 12:
                 print(
-                    f"[debug flush] {name} succ={bool(success_mask[i])} t={float(acc_time[i]):.2f}s "
-                    f"lin={float(acc_lin[i] / acc_time[i].clamp(min=dt)):.3f} "
-                    f"pos_err={float(last_pos_err[i]):.3f}"
+                    f"[debug flush] {name} env={int(i)} succ={bool(success_mask[i])} "
+                    f"t={float(acc_time[i]):.2f}s lin={float(acc_lin[i] / acc_time[i].clamp(min=dt)):.3f} "
+                    f"pos_err={float(last_pos_err[i]):.3f} d_xy={float(d_xy[i]):.3f} "
+                    f"d_z={float(d_z[i]):.3f} yaw={float(yaw_err[i]):.3f} "
+                    f"root={root_pos[i].tolist()} goal={cmd_term.pos_command_w[i].tolist()}"
                 )
                 debug_state["flush"] += 1
             s["lin"].append(float(acc_lin[i] / acc_time[i].clamp(min=dt)))
