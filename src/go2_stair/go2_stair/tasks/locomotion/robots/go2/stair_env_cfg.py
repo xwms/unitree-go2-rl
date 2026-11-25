@@ -329,11 +329,12 @@ class StairStage2RewardsCfg(StairRewardsCfg):
     topped = RewTerm(func=mdp.goal_topped_bonus, weight=50.0, params={"margin": 0.3, "z_tolerance": 0.13})
     # success payoff: terminating at the goal pays nothing by itself, while hovering
     # at the doorstep collects the dense nav rewards indefinitely, so without this
-    # bonus the policy learns to never finish; 250 * step_dt = 5 return units exceeds
-    # the discounted hover value of the nav terms (~3)
+    # bonus the policy learns to never finish; 600 * step_dt = 12 return units, which
+    # keeps winning strictly ahead of the doorstep hover value (~4-5 return units at
+    # high difficulty, where the nav terms pay more)
     goal = RewTerm(
         func=mdp.goal_reached_bonus,
-        weight=250.0,
+        weight=600.0,
         params={"command_name": "goal_command", "pos_tolerance": 0.35, "z_tolerance": 0.12, "yaw_tolerance": 0.45},
     )
     # goal_reached requires yaw error < 0.45 rad; the heading is only shaped on
