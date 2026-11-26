@@ -7,6 +7,7 @@
 #   bash scripts/train_stair.sh --max_iterations 5000  # 其余参数透传给 train.py
 #   TASK=Unitree-Go2-Stair-Stage2 bash scripts/train_stair.sh play   # 演示（需显示，可加 --video）
 #   TASK=Unitree-Go2-Stair-Stage2 bash scripts/train_stair.sh eval --checkpoint <ckpt>
+#   bash scripts/train_stair.sh export --checkpoint <ckpt>           # 导出 JIT/ONNX 到 checkpoint 同级 exported/
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -14,6 +15,7 @@ cd "$ROOT"
 PY="$ROOT/.venv/bin/python"
 RSL_RL_DIR="$ROOT/stack/unitree_rl_lab/scripts/rsl_rl"
 EVAL_PY="$ROOT/src/go2_stair/go2_stair/scripts/eval_stair.py"
+EXPORT_PY="$ROOT/src/go2_stair/go2_stair/scripts/export_stair_policy.py"
 STAGE1_TASK="Unitree-Go2-Stair-Stage1"
 STAGE2_TASK="Unitree-Go2-Stair-Stage2"
 STAGE1_EXP="go2_stair_stage1"
@@ -46,6 +48,12 @@ if [[ "${1:-}" == "eval" ]]; then
     shift
     TASK="${TASK:-$STAGE2_TASK}"
     exec "$PY" "$EVAL_PY" --task "$TASK" --headless "$@"
+fi
+
+if [[ "${1:-}" == "export" ]]; then
+    shift
+    TASK="${TASK:-$STAGE2_TASK}"
+    exec "$PY" "$EXPORT_PY" --task "$TASK" --headless "$@"
 fi
 
 if ! $STAGE2_ONLY; then
