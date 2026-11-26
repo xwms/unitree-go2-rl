@@ -345,6 +345,27 @@ class StairStage2RewardsCfg(StairRewardsCfg):
         weight=-1.0,
         params={"command_name": "goal_command", "near_radius": 1.0},
     )
+    # gait shaping for a deliberate climb (stop the sprint/shuffle): credit swing time
+    # when a raised foot lands, penalize feet that skate on the ground, and put a small
+    # per-step price on the episode time
+    feet_air_time = RewTerm(
+        func=mdp.feet_air_time_reward,
+        weight=20.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "threshold": 0.2,
+            "max_credit": 0.4,
+        },
+    )
+    feet_slide = RewTerm(
+        func=mdp.feet_slide_penalty,
+        weight=-2.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
+        },
+    )
+    time_cost = RewTerm(func=mdp.time_penalty, weight=-1.0)
 
 
 # -----------------------------------------------------------------------------

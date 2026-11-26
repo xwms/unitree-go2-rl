@@ -23,6 +23,7 @@ def _stair_buffers(env: ManagerBasedRLEnv) -> dict:
             "best_arc": torch.zeros(env.num_envs, device=env.device),
             "topped": torch.zeros(env.num_envs, dtype=torch.bool, device=env.device),
             "prev_touch": torch.zeros(env.num_envs, dtype=torch.bool, device=env.device),
+            "foot_contact": torch.zeros(env.num_envs, 4, dtype=torch.bool, device=env.device),
         }
         env._stair_rw_buffers = bufs
     return bufs
@@ -257,3 +258,50 @@ def step_reward(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg, threshold: f
     bufs["prev_touch"][:] = touched
     bufs["prev_touch"][done] = False
     return reward
+
+
+# -----------------------------------------------------------------------------
+# Gait shaping (stage 2)
+# -----------------------------------------------------------------------------
+
+
+def feet_air_time_reward(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    threshold: float = 0.2,
+    max_credit: float = 0.4,
+) -> torch.Tensor:
+    """Credit the swing time of each foot when it lands, for swings longer than ``threshold``.
+
+    Encourages deliberate steps (lift the foot, swing, place it) instead of a fast shuffle:
+    the credit is ``clip(air_time - threshold, 0, max_credit)`` per landing foot.
+    """
+    sensor: ContactSensor = env.scene[sensor_cfg.name]
+    foot_air = sensor.data.last_air_time[:, sensor_cfg.body_ids]
+    contact = torch.norm(sensor.data.net_forces_w[:, sensor_cfg.body_ids], dim=-1) > 1.0
+    bufs = _stair_buffers(env)
+    first = contact & ~bufs["foot_contact"]
+    credit = torch.clip(foot_air - threshold, min=0.0, max=max_credit)
+    reward = (credit * first.float()).sum(dim=1)
+    done = env.reset_terminated | env.reset_time_outs
+    bufs["foot_contact"][:] = contact
+    bufs["foot_contact"][done] = False
+    return reward
+
+
+def feet_slide_penalty(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Sum of horizontal foot speeds while a foot is in contact (penalizes skating)."""
+    sensor: ContactSensor = env.scene[sensor_cfg.name]
+    robot = env.scene[asset_cfg.name]
+    contact = torch.norm(sensor.data.net_forces_w[:, sensor_cfg.body_ids], dim=-1) > 1.0
+    foot_vel = torch.norm(robot.data.body_lin_vel_w[:, asset_cfg.body_ids, :2], dim=-1)
+    return (foot_vel * contact.float()).sum(dim=1)
+
+
+def time_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Constant per-step cost: prices the episode time so sprinting stops being free."""
+    return torch.ones(env.num_envs, device=env.device)
