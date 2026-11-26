@@ -104,23 +104,25 @@ def path_progress_reward(
     max_progress: float = 1.5,
     z_consistency: float | None = None,
 ) -> torch.Tensor:
-    """Path reward: arc-length progress along the centerline, modulated by the center term.
+    """Path reward: arc-length progress along the centerline in the travel direction.
 
-    Progress is measured against the best arc length reached so far in the episode:
-    backing up and re-climbing the same stretch cannot farm the reward. With
-    ``z_consistency`` set, the reward only pays while the robot is at the stair surface
-    height of its projection, so a ground-level lap alongside the staircase (whose xy
-    projection tracks the centerline all the way to the end) cannot farm the progress.
+    Progress is measured against the best signed progress reached so far in the episode
+    (ascending counts the arc up, descending counts it down): backing up and re-covering
+    the same stretch cannot farm the reward. With ``z_consistency`` set, the reward only
+    pays while the robot is at the stair surface height of its projection, so a ground-level
+    lap alongside the staircase (whose xy projection tracks the centerline to the end)
+    cannot farm the progress.
     """
     dt = env.step_dt if dt is None else dt
     cache = get_stair_cache(env)
     bufs = _stair_buffers(env)
     arc, lat = project_to_centerline(env, cache, env.scene["robot"].data.root_pos_w[:, :2])
-    progress = torch.clip((arc - bufs["best_arc"]) / dt, min=0.0, max=max_progress)
+    signed_arc = arc * torch.where(cache["descend"], -1.0, 1.0)
+    progress = torch.clip((signed_arc - bufs["best_arc"]) / dt, min=0.0, max=max_progress)
     center = torch.exp(-(lat**2) / (2.0 * sigma**2))
     reward = progress * center
     done = env.reset_terminated | env.reset_time_outs
-    bufs["best_arc"] = torch.maximum(bufs["best_arc"], arc)
+    bufs["best_arc"] = torch.maximum(bufs["best_arc"], signed_arc)
     bufs["best_arc"][done] = 0.0
     if z_consistency is None:
         return reward
@@ -142,7 +144,7 @@ def goal_topped_bonus(env: ManagerBasedRLEnv, margin: float = 0.3, z_tolerance: 
     arc, _ = project_to_centerline(env, cache, robot.data.root_pos_w[:, :2])
     d_z = torch.abs(cache["goal_pos"][:, 2] - robot.data.root_pos_w[:, 2])
     done = env.reset_terminated | env.reset_time_outs
-    crossed = (arc >= cache["s_end"] - margin) & (d_z < z_tolerance) & cache["is_stair"]
+    crossed = (arc >= cache["s_end"] - margin) & (d_z < z_tolerance) & cache["is_stair"] & ~cache["descend"]
     first = crossed & ~bufs["topped"] & ~done
     bufs["topped"] |= crossed
     bufs["topped"][done] = False

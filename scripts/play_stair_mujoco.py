@@ -105,7 +105,7 @@ def build_scene_xml(go2_xml: str, step_height: float, flat: bool = False) -> str
 
 
 class StairDemo:
-    def __init__(self, scene_xml: str, onnx_path: str, step_height: float, flat: bool = False):
+    def __init__(self, scene_xml: str, onnx_path: str, step_height: float, flat: bool = False, descent: bool = False):
         self.model = mujoco.MjModel.from_xml_path(scene_xml)
         self.model.opt.timestep = 0.005  # training: 4 x 0.005 s per 50 Hz control step
         # the shipped go2.xml uses frictionless contacts (condim=1) and low friction;
@@ -142,9 +142,21 @@ class StairDemo:
         self.n_steps, self.tread, self.step_height = 12, 0.25, step_height
         self.x0 = 1.0
         self.top = 0.0 if flat else self.n_steps * step_height
-        self.spawn = np.array([self.x0 - 0.5, 0.0])
-        self.goal_xy = np.array([self.x0 + self.n_steps * self.tread - 0.1, 0.0])
-        self.goal_yaw = 0.0
+        end_x = self.x0 + self.n_steps * self.tread
+        if descent:
+            # spawn on the landing facing down, goal just before the stair base
+            self.spawn = np.array([end_x + 0.4, 0.0])
+            self.spawn_z = self.top + 0.40
+            self.spawn_yaw = math.pi
+            self.goal_xy = np.array([self.x0 - 0.1, 0.0])
+            self.goal_yaw = math.pi
+        else:
+            self.spawn = np.array([self.x0 - 0.5, 0.0])
+            self.spawn_z = 0.40
+            self.spawn_yaw = 0.0
+            self.goal_xy = np.array([end_x - 0.1, 0.0])
+            self.goal_yaw = 0.0
+        self.goal_z = self.top + 0.40  # re-set after settling in main()
         self.stand_z = 0.40  # measured after settling
         self.height_bias = 0.0  # matches the height map to the training distribution
         self.foot_bias = np.zeros(4)  # per-foot height bias matching the Isaac foot frames
@@ -153,7 +165,14 @@ class StairDemo:
     def reset(self):
         self.data.qpos[:] = 0.0
         self.data.qvel[:] = 0.0
-        self.data.qpos[self.qpos0: self.qpos0 + 7] = [*self.spawn, 0.40, 1.0, 0.0, 0.0, 0.0]
+        self.data.qpos[self.qpos0: self.qpos0 + 7] = [
+            *self.spawn,
+            self.spawn_z,
+            math.cos(self.spawn_yaw / 2),
+            0.0,
+            0.0,
+            math.sin(self.spawn_yaw / 2),
+        ]
         for name, default in ASSET_JOINTS:
             self.data.qpos[self.joint_idx[name][0]] = default
         mujoco.mj_forward(self.model, self.data)
@@ -195,7 +214,7 @@ class StairDemo:
         joint_pos = np.array([d.qpos[self.joint_idx[name][0]] - default for name, default in ASSET_JOINTS])
         joint_vel = np.array([d.qvel[self.joint_idx[name][1]] for name, _ in ASSET_JOINTS])
 
-        goal_w = np.array([self.goal_xy[0], self.goal_xy[1], self.top + self.stand_z])
+        goal_w = np.array([self.goal_xy[0], self.goal_xy[1], self.goal_z])
         rel_pos = quat_rotate_inv(root_quat, goal_w - root_pos)
         rel_heading = (self.goal_yaw - yaw_of(root_quat) + math.pi) % (2 * math.pi) - math.pi
         goal = np.concatenate([rel_pos, [rel_heading]])
@@ -250,7 +269,7 @@ class StairDemo:
         pos = d.qpos[self.qpos0: self.qpos0 + 3]
         quat = d.qpos[self.qpos0 + 3: self.qpos0 + 7]
         d_xy = float(np.linalg.norm(self.goal_xy - pos[:2]))
-        d_z = abs(self.top + self.stand_z - pos[2])
+        d_z = abs(self.goal_z - pos[2])
         yaw_err = abs((self.goal_yaw - yaw_of(quat) + math.pi) % (2 * math.pi) - math.pi)
         return d_xy < GOAL_POS_TOL and d_z < GOAL_Z_TOL and yaw_err < GOAL_YAW_TOL
 
@@ -271,6 +290,7 @@ def main():
         "0.40 - settled base height, matching the Isaac base-frame height).",
     )
     parser.add_argument("--flat", action="store_true", default=False, help="No staircase (pipeline sanity check).")
+    parser.add_argument("--descent", action="store_true", default=False, help="Start on the landing and walk down.")
     parser.add_argument("--speed", type=float, default=1.0, help="Playback speed factor for the viewer (e.g. 0.3 = slow motion).")
     parser.add_argument(
         "--no_stop_at_goal",
@@ -285,10 +305,11 @@ def main():
     go2_xml = os.path.join(root, args.go2_xml)
     onnx_path = os.path.join(root, args.onnx)
     scene_xml = build_scene_xml(go2_xml, args.step_height, flat=args.flat)
-    demo = StairDemo(scene_xml, onnx_path, args.step_height, flat=args.flat)
+    demo = StairDemo(scene_xml, onnx_path, args.step_height, flat=args.flat, descent=args.descent)
 
     demo.reset()
     demo.hold_default(0.5)
+    demo.goal_z = demo.stand_z + (0.0 if args.descent else demo.top)
     demo.height_bias = (0.40 - demo.stand_z) if args.height_bias is None else args.height_bias
     print(f"stand height after settling: {demo.stand_z:.3f} m, height-obs bias: {demo.height_bias:+.3f} m")
 

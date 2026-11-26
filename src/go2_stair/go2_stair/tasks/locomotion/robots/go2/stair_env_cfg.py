@@ -176,7 +176,7 @@ class StairEventCfg:
     reset_base = EventTerm(
         func=mdp.reset_root_state_from_stair,
         mode="reset",
-        params={"lateral_range": (-0.3, 0.3), "yaw_range": (-math.pi / 4, math.pi / 4)},
+        params={"lateral_range": (-0.3, 0.3), "yaw_range": (-math.pi / 4, math.pi / 4), "descend_prob": 0.5},
     )
     reset_robot_joints = EventTerm(
         func=mdp.reset_joints_by_scale,

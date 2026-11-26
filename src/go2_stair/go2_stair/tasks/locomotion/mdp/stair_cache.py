@@ -41,6 +41,10 @@ def _build_stair_tables(env: ManagerBasedRLEnv) -> dict:
     goal_dir_tbl = torch.zeros((num_tiles, 2), dtype=torch.float32)
     spawn_offset_tbl = torch.zeros((num_tiles, 3), dtype=torch.float32)
     spawn_yaw_tbl = torch.zeros(num_tiles, dtype=torch.float32)
+    spawn_down_tbl = torch.zeros((num_tiles, 3), dtype=torch.float32)
+    spawn_yaw_down_tbl = torch.zeros(num_tiles, dtype=torch.float32)
+    goal_down_xy_tbl = torch.zeros((num_tiles, 2), dtype=torch.float32)
+    goal_down_yaw_tbl = torch.zeros(num_tiles, dtype=torch.float32)
     platform_z_tbl = torch.zeros(num_tiles, dtype=torch.float32)
     goal_radius_tbl = torch.zeros(num_tiles, dtype=torch.float32)
     s_end_tbl = torch.zeros(num_tiles, dtype=torch.float32)
@@ -81,6 +85,13 @@ def _build_stair_tables(env: ManagerBasedRLEnv) -> dict:
             goal_end_local_tbl[tid] = cl[-1]
             goal_dir_tbl[tid] = dir_end
             spawn_yaw_tbl[tid] = torch.atan2(dir0[1], dir0[0])
+            # descent: spawn on the landing facing down, goal just before the stair base
+            down_spawn = cl[-1].clone()
+            down_spawn[:2] += 0.4 * dir_end
+            spawn_down_tbl[tid] = down_spawn
+            spawn_yaw_down_tbl[tid] = torch.atan2(-dir_end[1], -dir_end[0])
+            goal_down_xy_tbl[tid] = cl[0, :2] - 0.1 * dir0
+            goal_down_yaw_tbl[tid] = torch.atan2(-dir0[1], -dir0[0])
 
             n_seg = cl.shape[0] - 1
             a = cl[:-1, :2]
@@ -103,6 +114,10 @@ def _build_stair_tables(env: ManagerBasedRLEnv) -> dict:
         "goal_dir_tbl": goal_dir_tbl.to(device),
         "spawn_offset_tbl": spawn_offset_tbl.to(device),
         "spawn_yaw_tbl": spawn_yaw_tbl.to(device),
+        "spawn_down_tbl": spawn_down_tbl.to(device),
+        "spawn_yaw_down_tbl": spawn_yaw_down_tbl.to(device),
+        "goal_down_xy_tbl": goal_down_xy_tbl.to(device),
+        "goal_down_yaw_tbl": goal_down_yaw_tbl.to(device),
         "platform_z_tbl": platform_z_tbl.to(device),
         "goal_radius_tbl": goal_radius_tbl.to(device),
         "s_end_tbl": s_end_tbl.to(device),
@@ -141,6 +156,16 @@ def get_stair_cache(env: ManagerBasedRLEnv) -> dict:
         torch.cat((goal_xy, goal_z), dim=1),
         torch.zeros_like(origins),
     )
+    # per-env travel direction (sampled at reset by the spawn event; pyramid envs never descend)
+    descend = getattr(env, "_stair_descend", None)
+    if descend is None or descend.shape[0] != env.num_envs:
+        descend = torch.zeros(env.num_envs, dtype=torch.bool, device=tbl["device"])
+    else:
+        descend = descend & is_stair
+    goal_down_pos = torch.cat(
+        (tbl["goal_down_xy_tbl"][tile_ids] + origins[:, :2], (origins[:, 2] + tbl["robot_default_z"]).unsqueeze(1)),
+        dim=1,
+    )
 
     return {
         "_tbl": tbl,
@@ -149,10 +174,15 @@ def get_stair_cache(env: ManagerBasedRLEnv) -> dict:
         "origins": origins,
         "tile_ids": tile_ids,
         "is_stair": is_stair,
+        "descend": descend,
         "goal_pos": goal_pos,
+        "goal_down_pos": goal_down_pos,
+        "goal_down_heading": tbl["goal_down_yaw_tbl"][tile_ids],
         "goal_dir": goal_dir,
         "spawn_offsets": tbl["spawn_offset_tbl"][tile_ids],
+        "spawn_down_offsets": tbl["spawn_down_tbl"][tile_ids],
         "spawn_yaws": tbl["spawn_yaw_tbl"][tile_ids],
+        "spawn_yaws_down": tbl["spawn_yaw_down_tbl"][tile_ids],
         "platform_z": tbl["platform_z_tbl"][tile_ids],
         "goal_radius": tbl["goal_radius_tbl"][tile_ids],
         "s_end": tbl["s_end_tbl"][tile_ids],

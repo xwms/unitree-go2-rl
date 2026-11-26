@@ -88,11 +88,15 @@ class StairPoseCommand(CommandTerm):
             stair_envs = env_ids[:0]
             pyr_envs = env_ids
 
-        # goal at the top of the staircase
+        # goal at the top of the staircase (ascent) or just before its base (descent)
         if len(stair_envs) > 0:
-            self.pos_command_w[stair_envs] = cache["goal_pos"][stair_envs]
+            down = cache["descend"][stair_envs]
+            self.pos_command_w[stair_envs] = torch.where(
+                down.unsqueeze(1), cache["goal_down_pos"][stair_envs], cache["goal_pos"][stair_envs]
+            )
             dirs = cache["goal_dir"][stair_envs]
-            self.heading_command_w[stair_envs] = torch.atan2(dirs[:, 1], dirs[:, 0])
+            up_heading = torch.atan2(dirs[:, 1], dirs[:, 0])
+            self.heading_command_w[stair_envs] = torch.where(down, cache["goal_down_heading"][stair_envs], up_heading)
 
         # goal on the pyramid platform disk
         if len(pyr_envs) > 0:

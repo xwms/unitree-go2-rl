@@ -40,6 +40,12 @@ parser.add_argument(
 )
 parser.add_argument("--seed", type=int, default=42, help="Seed for the environment.")
 parser.add_argument(
+    "--direction",
+    choices=["mixed", "up", "down"],
+    default="mixed",
+    help="Travel direction of the stair episodes (descent support).",
+)
+parser.add_argument(
     "--dump_obs",
     action="store_true",
     default=False,
@@ -93,6 +99,7 @@ def make_eval_env(task: str, kind_names: list[str], step_height: float, num_envs
     gen_cfg.difficulty_range = (difficulty, difficulty)
     gen_cfg.sub_terrains = {name: gen_cfg.sub_terrains[name] for name in kind_names}
     env_cfg.scene.terrain.max_init_terrain_level = 0
+    env_cfg.events.reset_base.params["descend_prob"] = {"mixed": 0.5, "up": 0.0, "down": 1.0}[args_cli.direction]
     # no curriculum moves and no goal-reached termination (success is detected by the eval loop)
     env_cfg.curriculum = None
     delattr(env_cfg.terminations, "goal_reached")
