@@ -153,9 +153,15 @@ def main():
             env, policy = load_policy(task, args_cli.checkpoint, env, args_cli.device)
             if args_cli.dump_obs:
                 obs0 = env.get_observations()
-                obs0 = obs0[0] if isinstance(obs0, tuple) else obs0
+                if isinstance(obs0, tuple):
+                    obs0 = obs0[0]
+                if not hasattr(obs0, "detach"):  # TensorDict / dict of observation groups
+                    obs0 = obs0["policy"]
+                if hasattr(obs0, "detach"):
+                    obs0 = obs0.detach().cpu()
+                first = obs0[0].tolist() if hasattr(obs0[0], "tolist") else list(obs0[0])
+                print("[dump_obs]", ",".join(f"{float(v):.5f}" for v in first))
                 robot = env.unwrapped.scene["robot"]
-                print("[dump_obs]", ",".join(f"{v:.5f}" for v in obs0[0].tolist()))
                 print("[dump_root]", ",".join(f"{v:.5f}" for v in robot.data.root_pos_w[0].tolist()),
                       "|", ",".join(f"{v:.5f}" for v in robot.data.root_quat_w[0].tolist()))
                 print("[dump_joints]", ",".join(f"{v:.5f}" for v in robot.data.joint_pos[0].tolist()))
