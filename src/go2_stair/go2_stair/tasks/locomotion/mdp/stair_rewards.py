@@ -307,3 +307,57 @@ def feet_slide_penalty(
 def time_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Constant per-step cost: prices the episode time so sprinting stops being free."""
     return torch.ones(env.num_envs, device=env.device)
+
+
+def feet_gait_reward(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    period: float = 0.7,
+    threshold: float = 0.55,
+) -> torch.Tensor:
+    """Trot gait-clock reward (official ``feet_gait`` style, adapted to a quadruped).
+
+    Every foot earns 1.0 on each step where its contact state agrees with the diagonal-pair
+    schedule (FL/RR in phase, FR/RL half a period apart). Pins the cadence and footfall
+    pattern instead of letting the policy shuffle at an arbitrary rhythm.
+    """
+    sensor: ContactSensor = env.scene[sensor_cfg.name]
+    is_contact = sensor.data.current_contact_time[:, sensor_cfg.body_ids] > 0
+    offsets = torch.zeros(len(sensor_cfg.body_ids), device=env.device)
+    for i, bid in enumerate(sensor_cfg.body_ids):
+        name = sensor.body_names[bid]
+        front, left = name.startswith("F"), name[1] == "L"
+        offsets[i] = 0.0 if front == left else 0.5
+    global_phase = ((env.episode_length_buf * env.step_dt) % period) / period
+    leg_phase = (global_phase.unsqueeze(1) + offsets.unsqueeze(0)) % 1.0
+    is_stance = leg_phase < threshold
+    return (~(is_stance ^ is_contact)).float().sum(dim=1)
+
+
+def air_time_variance_penalty(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Variance of the last swing / stance times across the feet (encourages a symmetric gait)."""
+    sensor: ContactSensor = env.scene[sensor_cfg.name]
+    last_air = torch.clip(sensor.data.last_air_time[:, sensor_cfg.body_ids], max=0.5)
+    last_contact = torch.clip(sensor.data.last_contact_time[:, sensor_cfg.body_ids], max=0.5)
+    return torch.var(last_air, dim=1) + torch.var(last_contact, dim=1)
+
+
+def feet_swing_lift_reward(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    target_drop: float = 0.25,
+    std: float = 0.05,
+) -> torch.Tensor:
+    """Reward swinging feet that tuck up to ~``target_drop`` below the base.
+
+    A terrain-agnostic clearance term (the official absolute-height version only works on
+    flat ground): the foot gets ``exp(-(drop - target_drop)^2 / 2std^2)`` while it is in
+    the air, so visible lifts are worth more than dragging the feet across the steps.
+    """
+    sensor: ContactSensor = env.scene[sensor_cfg.name]
+    robot = env.scene[asset_cfg.name]
+    contact = torch.norm(sensor.data.net_forces_w[:, sensor_cfg.body_ids], dim=-1) > 1.0
+    drop = robot.data.root_pos_w[:, 2].unsqueeze(1) - robot.data.body_pos_w[:, asset_cfg.body_ids, 2]
+    per_foot = torch.exp(-torch.square(drop - target_drop) / (2.0 * std**2))
+    return (per_foot * (~contact).float()).sum(dim=1)

@@ -345,27 +345,47 @@ class StairStage2RewardsCfg(StairRewardsCfg):
         weight=-1.0,
         params={"command_name": "goal_command", "near_radius": 1.0},
     )
-    # gait shaping for a deliberate climb (stop the sprint/shuffle): credit swing time
-    # when a raised foot lands, penalize feet that skate on the ground, and put a small
-    # per-step price on the episode time
+    # gait shaping (official-style): a trot gait clock pins cadence and footfall pattern,
+# swing lift rewards visible foot clearance, the variance term keeps the four feet
+# symmetric, and a per-step time price stops the discount-driven sprint
+    gait = RewTerm(
+        func=mdp.feet_gait_reward,
+        weight=0.5,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "period": 0.7, "threshold": 0.55},
+    )
     feet_air_time = RewTerm(
         func=mdp.feet_air_time_reward,
-        weight=20.0,
+        weight=0.1,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-            "threshold": 0.2,
+            "threshold": 0.3,
             "max_credit": 0.4,
+        },
+    )
+    air_time_variance = RewTerm(
+        func=mdp.air_time_variance_penalty,
+        weight=-1.0,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")},
+    )
+    feet_swing_lift = RewTerm(
+        func=mdp.feet_swing_lift_reward,
+        weight=3.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
+            "target_drop": 0.25,
+            "std": 0.05,
         },
     )
     feet_slide = RewTerm(
         func=mdp.feet_slide_penalty,
-        weight=-2.0,
+        weight=-0.1,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
             "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
         },
     )
-    time_cost = RewTerm(func=mdp.time_penalty, weight=-1.0)
+    time_cost = RewTerm(func=mdp.time_penalty, weight=-1.5)
 
 
 # -----------------------------------------------------------------------------
