@@ -85,7 +85,14 @@ def main():
 
     onnx_path = os.path.join(export_dir, "policy.onnx")
     dummy = torch.zeros(1, OBS_DIM)
-    torch.onnx.export(wrapper, dummy, onnx_path, input_names=["obs"], output_names=["actions"])
+    torch.onnx.export(
+        wrapper,
+        dummy,
+        onnx_path,
+        input_names=["obs"],
+        output_names=["actions"],
+        dynamic_axes={"obs": {0: "batch"}, "actions": {0: "batch"}},
+    )
     print(f"[OK] ONNX exported: {onnx_path}")
 
     try:
