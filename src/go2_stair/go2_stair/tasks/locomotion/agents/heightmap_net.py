@@ -3,7 +3,7 @@
 The policy consumes 522-dim observations: 81 proprioceptive values (velocities, gravity,
 joints, actions, goal) + 32 foot heights + a 21x21 (441) height map. The last 441 values
 are reshaped into the height map and encoded by a shared CNN
-(3 conv layers 8 -> 16 -> 32, 2x2 max pooling, adaptive pooling to a 128-dim vector),
+(3 conv layers 8 -> 16 -> 32, 2x2 max pooling, 3x3/stride-2 average pooling, flatten),
 then concatenated with the proprioceptive part and passed through MLP heads.
 
 rsl-rl resolves the policy class with ``eval`` inside the ``rsl_rl.runners.on_policy_runner``
@@ -98,7 +98,9 @@ class HeightmapActorCritic(ActorCritic):
         )
         act = resolve_nn_activation(activation)
         # shared CNN encoder: 3 conv layers 8 -> 16 -> 32 with 2x2 max pooling,
-        # adaptive average pooling to a 2x2 grid -> 128-dim encoding
+        # then 3x3/stride-2 average pooling over the fixed 5x5 feature map. This is
+        # exactly AdaptiveAvgPool2d((2, 2)) for a 5x5 input (windows [0,3) and [2,5))
+        # but is ONNX-exportable, unlike adaptive pooling with non-divisible sizes.
         self.cnn_encoder = nn.Sequential(
             nn.Conv2d(1, 8, kernel_size=3, padding=1),
             act,
@@ -108,7 +110,7 @@ class HeightmapActorCritic(ActorCritic):
             nn.Conv2d(16, 32, kernel_size=3, padding=1),
             act,
             nn.MaxPool2d(2),
-            nn.AdaptiveAvgPool2d((2, 2)),
+            nn.AvgPool2d(kernel_size=3, stride=2),
             nn.Flatten(),
         )
         self.actor = _HeightmapHead(PROPRIO_DIM, self.cnn_encoder, CNN_OUT_DIM, actor_hidden_dims, num_actions, act)
