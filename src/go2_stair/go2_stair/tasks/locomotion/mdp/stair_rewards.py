@@ -309,29 +309,25 @@ def time_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
     return torch.ones(env.num_envs, device=env.device)
 
 
-def feet_gait_reward(
-    env: ManagerBasedRLEnv,
-    sensor_cfg: SceneEntityCfg,
-    period: float = 0.7,
-    threshold: float = 0.55,
-) -> torch.Tensor:
-    """Trot gait-clock reward (official ``feet_gait`` style, adapted to a quadruped).
+def feet_trot_reward(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Clock-free trot preference on the foot contact states.
 
-    Every foot earns 1.0 on each step where its contact state agrees with the diagonal-pair
-    schedule (FL/RR in phase, FR/RL half a period apart). Pins the cadence and footfall
-    pattern instead of letting the policy shuffle at an arbitrary rhythm.
+    Rewards diagonal feet agreeing in contact (FL~RR, FR~RL) and penalizes the front /
+    rear pairs agreeing (a bound/"legs-together" gait). All four feet loaded (standing)
+    scores 0, a diagonal trot scores +2, a bound or pace-like pattern scores negative.
+    Unlike a phase-clock reward it needs no observable clock, which a feed-forward policy
+    cannot synchronize to.
     """
     sensor: ContactSensor = env.scene[sensor_cfg.name]
-    is_contact = sensor.data.current_contact_time[:, sensor_cfg.body_ids] > 0
-    offsets = torch.zeros(len(sensor_cfg.body_ids), device=env.device)
+    contact = torch.norm(sensor.data.net_forces_w[:, sensor_cfg.body_ids], dim=-1) > 1.0
+    legs = {}
     for i, bid in enumerate(sensor_cfg.body_ids):
         name = sensor.body_names[bid]
-        front, left = name.startswith("F"), name[1] == "L"
-        offsets[i] = 0.0 if front == left else 0.5
-    global_phase = ((env.episode_length_buf * env.step_dt) % period) / period
-    leg_phase = (global_phase.unsqueeze(1) + offsets.unsqueeze(0)) % 1.0
-    is_stance = leg_phase < threshold
-    return (~(is_stance ^ is_contact)).float().sum(dim=1)
+        legs[name[0] + name[1]] = i  # FL / FR / RL / RR
+    fl, fr, rl, rr = (contact[:, legs[k]] for k in ("FL", "FR", "RL", "RR"))
+    diagonal = (fl == rr).float() + (fr == rl).float()
+    pairs = (fl == fr).float() + (rl == rr).float()
+    return diagonal - pairs
 
 
 def air_time_variance_penalty(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:

@@ -345,13 +345,13 @@ class StairStage2RewardsCfg(StairRewardsCfg):
         weight=-1.0,
         params={"command_name": "goal_command", "near_radius": 1.0},
     )
-    # gait shaping (official-style): a trot gait clock pins cadence and footfall pattern,
-# swing lift rewards visible foot clearance, the variance term keeps the four feet
-# symmetric, and a per-step time price stops the discount-driven sprint
-    gait = RewTerm(
-        func=mdp.feet_gait_reward,
-        weight=0.5,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "period": 0.7, "threshold": 0.55},
+    # gait shaping: a clock-free diagonal-trot constraint (+2 for a diagonal stance,
+# -2 for a bound/legs-together stance), visible swing clearance, symmetric swing
+# times, and a per-step time price against the discount-driven sprint
+    trot = RewTerm(
+        func=mdp.feet_trot_reward,
+        weight=2.0,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")},
     )
     feet_air_time = RewTerm(
         func=mdp.feet_air_time_reward,
