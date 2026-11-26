@@ -40,6 +40,11 @@ class _HeightmapHead(nn.Module):
         super().__init__()
         self.cnn = cnn
         self.proprio_dim = proprio_dim
+        # instance attributes instead of module-level globals: TorchScript cannot
+        # close over python ints when scripting the module for JIT/ONNX export
+        self.heightmap_size = HEIGHTMAP_SIZE
+        self.heightmap_rows = HEIGHTMAP_ROWS
+        self.heightmap_cols = HEIGHTMAP_COLS
         layers: list[nn.Module] = [nn.Linear(proprio_dim + cnn_out_dim, hidden_dims[0]), activation]
         for i in range(len(hidden_dims) - 1):
             layers += [nn.Linear(hidden_dims[i], hidden_dims[i + 1]), activation]
@@ -47,7 +52,9 @@ class _HeightmapHead(nn.Module):
         self.mlp = nn.Sequential(*layers)
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
-        heightmap = observations[:, -HEIGHTMAP_SIZE:].reshape(-1, 1, HEIGHTMAP_ROWS, HEIGHTMAP_COLS)
+        heightmap = observations[:, -self.heightmap_size :].reshape(
+            -1, 1, self.heightmap_rows, self.heightmap_cols
+        )
         encoded = self.cnn(heightmap)
         x = torch.cat([observations[:, : self.proprio_dim], encoded], dim=-1)
         return self.mlp(x)
