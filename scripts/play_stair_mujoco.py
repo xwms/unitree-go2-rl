@@ -14,6 +14,7 @@ Usage:
 import argparse
 import math
 import os
+import time
 
 import mujoco
 import numpy as np
@@ -270,6 +271,14 @@ def main():
         "0.40 - settled base height, matching the Isaac base-frame height).",
     )
     parser.add_argument("--flat", action="store_true", default=False, help="No staircase (pipeline sanity check).")
+    parser.add_argument("--speed", type=float, default=1.0, help="Playback speed factor for the viewer (e.g. 0.3 = slow motion).")
+    parser.add_argument(
+        "--no_stop_at_goal",
+        dest="stop_at_goal",
+        action="store_false",
+        default=True,
+        help="Keep running the policy after the goal is reached (default: freeze the stand pose).",
+    )
     args = parser.parse_args()
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -291,6 +300,8 @@ def main():
     last_action = np.zeros(12)
     reached_at = None
     n_ctrl = int(round(args.duration / 0.02))
+    step_wall = 0.02 / max(args.speed, 0.01)
+    t_next = time.perf_counter()
     try:
         for step in range(n_ctrl):
             obs = demo.build_obs(last_action)
@@ -302,6 +313,8 @@ def main():
                     f"foot[0:4]={np.round(obs[49:53], 2).tolist()} hmap[min,max]=({obs[81:].min():.2f},{obs[81:].max():.2f}) "
                     f"action|max|={np.abs(action).max():.2f} std={action.std():.2f}"
                 )
+            if args.stop_at_goal and reached_at is not None:
+                action = np.zeros(12)  # hold the default stand pose on top of the stairs
             target = {name: default + ACTION_SCALE * float(action[i]) for i, (name, default) in enumerate(ASSET_JOINTS)}
             demo.apply_pd(target, n_sub=4)
             last_action = action
@@ -316,6 +329,12 @@ def main():
                 viewer.sync()
                 if not viewer.is_running():
                     break
+                t_next += step_wall
+                sleep_s = t_next - time.perf_counter()
+                if sleep_s > 0:
+                    time.sleep(sleep_s)
+            else:
+                t_next = time.perf_counter()
     finally:
         if viewer is not None:
             viewer.close()
