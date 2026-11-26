@@ -39,6 +39,12 @@ parser.add_argument(
     help="Comma-separated terrain kinds to evaluate (default: all kinds of the task).",
 )
 parser.add_argument("--seed", type=int, default=42, help="Seed for the environment.")
+parser.add_argument(
+    "--dump_obs",
+    action="store_true",
+    default=False,
+    help="Print one reset observation vector (plus root/joint state) and exit (pipeline debugging).",
+)
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 args_cli, _ = parser.parse_known_args()
@@ -145,6 +151,15 @@ def main():
         try:
             env = make_eval_env(task, kinds, height, args_cli.num_envs, args_cli.device)
             env, policy = load_policy(task, args_cli.checkpoint, env, args_cli.device)
+            if args_cli.dump_obs:
+                obs0 = env.get_observations()
+                obs0 = obs0[0] if isinstance(obs0, tuple) else obs0
+                robot = env.unwrapped.scene["robot"]
+                print("[dump_obs]", ",".join(f"{v:.5f}" for v in obs0[0].tolist()))
+                print("[dump_root]", ",".join(f"{v:.5f}" for v in robot.data.root_pos_w[0].tolist()),
+                      "|", ",".join(f"{v:.5f}" for v in robot.data.root_quat_w[0].tolist()))
+                print("[dump_joints]", ",".join(f"{v:.5f}" for v in robot.data.joint_pos[0].tolist()))
+                return
             row = evaluate_configuration(env, policy, kinds, episodes_per_kind, csv_writer, height)
             print(
                 f"[{height:.2f} m] success {row['success']:.1%} | lin_vel {row['lin_vel']:.3f} m/s | "
