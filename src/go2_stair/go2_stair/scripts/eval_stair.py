@@ -242,6 +242,11 @@ class FootDebugRecorder:
             + "  ".join(f"{name[:2]} {means[name]['swing_drop']:.3f}" for name in _FOOT_BODY_NAMES),
             flush=True,
         )
+        print(
+            "  body stance_drop[m]: "
+            + "  ".join(f"{name[:2]} {means[name]['stance_drop']:.3f}" for name in _FOOT_BODY_NAMES),
+            flush=True,
+        )
         for left, right in (("FL_foot", "FR_foot"), ("RL_foot", "RR_foot")):
             lm, rm = means[left], means[right]
             air_delta = lm["air"] - rm["air"] if lm["has_air"] and rm["has_air"] else None
@@ -250,6 +255,7 @@ class FootDebugRecorder:
                 f"  {left}-{right}: swing_clear {lm['swing_clear'] - rm['swing_clear']:+.3f} m, "
                 f"stance_clear {lm['stance_clear'] - rm['stance_clear']:+.3f} m, "
                 f"swing_drop {lm['swing_drop'] - rm['swing_drop']:+.3f} m, "
+                f"stance_drop {lm['stance_drop'] - rm['stance_drop']:+.3f} m, "
                 f"duty {lm['duty'] - rm['duty']:+.3f}, swing_air {air_text} "
                 f"(negative swing_clear = left foot lower)",
                 flush=True,
