@@ -229,6 +229,11 @@ def joint_acceleration_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
     return torch.sum(torch.square(robot.data.joint_acc), dim=1)
 
 
+def base_roll_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Squared sine of the base roll; unlike flat-orientation penalties it leaves pitch free."""
+    return torch.square(env.scene["robot"].data.projected_gravity_b[:, 1])
+
+
 def leg_contact_penalty(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg, threshold: float = 1.0) -> torch.Tensor:
     """Penalty (1.0) while any body in the given group is in contact.
 
