@@ -379,6 +379,16 @@ class StairStage2RewardsCfg(StairRewardsCfg):
             "std": 0.05,
         },
     )
+    # left hind swings markedly lower than the right in the descent diagnostic
+    hind_swing_clearance = RewTerm(
+        func=mdp.hind_swing_clearance_reward,
+        weight=2.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "target_clearance": 0.18,
+            "std": 0.05,
+        },
+    )
     feet_slide = RewTerm(
         func=mdp.feet_slide_penalty,
         weight=-0.1,

@@ -362,3 +362,29 @@ def feet_swing_lift_reward(
     drop = robot.data.root_pos_w[:, 2].unsqueeze(1) - robot.data.body_pos_w[:, asset_cfg.body_ids, 2]
     per_foot = torch.exp(-torch.square(drop - target_drop) / (2.0 * std**2))
     return (per_foot * (~contact).float()).sum(dim=1)
+
+
+def hind_swing_clearance_reward(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    scanner_names: tuple[str, ...] = ("RL_foot_scanner", "RR_foot_scanner"),
+    target_clearance: float = 0.18,
+    std: float = 0.05,
+) -> torch.Tensor:
+    """Reward hind swing feet for keeping ~``target_clearance`` above the local terrain."""
+    sensor: ContactSensor = env.scene[sensor_cfg.name]
+    foot_names = [sensor.body_names[i] for i in sensor_cfg.body_ids]
+    hind_ids = [foot_names.index("RL_foot"), foot_names.index("RR_foot")]
+    contact = torch.norm(sensor.data.net_forces_w[:, sensor_cfg.body_ids], dim=-1) > 1.0
+
+    clearances = []
+    for name in scanner_names:
+        scanner = env.scene[name]
+        hits_z = scanner.data.ray_hits_w[..., 2]
+        clearance = scanner.data.pos_w[:, 2].unsqueeze(-1) - hits_z
+        clearance = torch.where(torch.isfinite(hits_z), clearance, torch.ones_like(clearance)).clamp(-0.1, 1.0)
+        clearances.append(clearance.mean(dim=-1))
+
+    clearance = torch.stack(clearances, dim=1)
+    per_foot = torch.exp(-torch.square(clearance - target_clearance) / (2.0 * std**2))
+    return (per_foot * (~contact[:, hind_ids]).float()).sum(dim=1)
