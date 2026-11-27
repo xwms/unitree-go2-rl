@@ -17,6 +17,10 @@ statistics are frozen (later falls do not pollute the metrics).
 
 Usage:
     python eval_stair.py --task Unitree-Go2-Stair-Stage2 --checkpoint <model.pt> --headless
+
+    # per-foot descent gait diagnostics (one terrain/height per process)
+    python eval_stair.py --task Unitree-Go2-Stair-Stage2 --checkpoint <model.pt> --headless \
+        --direction down --terrains straight --step_heights 0.12 --num_episodes 60 --foot_debug
 """
 
 """Launch Isaac Sim Simulator first."""
@@ -51,6 +55,12 @@ parser.add_argument(
     default=False,
     help="Print one reset observation vector (plus root/joint state) and exit (pipeline debugging).",
 )
+parser.add_argument(
+    "--foot_debug",
+    action="store_true",
+    default=False,
+    help="Print per-foot contact, terrain clearance, swing-time and base-tilt statistics.",
+)
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 args_cli, _ = parser.parse_known_args()
@@ -71,7 +81,7 @@ import torch
 from rsl_rl.runners import OnPolicyRunner
 
 import isaaclab_tasks  # noqa: F401
-from isaaclab.utils.math import wrap_to_pi
+from isaaclab.utils.math import euler_xyz_from_quat, wrap_to_pi
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 
 from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry
@@ -86,6 +96,141 @@ Z_TOL = 0.12
 YAW_TOL = 0.45
 # training step height range of the curriculum: [0.02, 0.12]
 HEIGHT_MIN, HEIGHT_MAX = 0.02, 0.12
+
+_FOOT_BODY_NAMES = ("FL_foot", "FR_foot", "RL_foot", "RR_foot")
+_FOOT_SCANNER_NAMES = ("FL_foot_scanner", "FR_foot_scanner", "RL_foot_scanner", "RR_foot_scanner")
+
+
+class FootDebugRecorder:
+    """Read-only per-foot gait statistics for descent analysis."""
+
+    WARMUP_S = 0.5
+    LOW_SWING_CLEARANCE = 0.03
+
+    def __init__(self, env, robot):
+        self.robot = robot
+        self.device = env.device
+        self.sensor = env.scene["contact_forces"]
+        self.scanners = [env.scene[name] for name in _FOOT_SCANNER_NAMES]
+        self.sensor_ids = [self.sensor.body_names.index(name) for name in _FOOT_BODY_NAMES]
+        self.prev_contact = torch.zeros(env.num_envs, 4, dtype=torch.bool, device=self.device)
+
+        def zeros4():
+            return torch.zeros(4, device=self.device)
+
+        self.stance_n, self.stance_clear, self.stance_clear_sq = zeros4(), zeros4(), zeros4()
+        self.swing_n, self.swing_clear, self.swing_clear_sq = zeros4(), zeros4(), zeros4()
+        self.swing_low_n = zeros4()
+        self.touch_n, self.touch_air, self.touch_air_sq = zeros4(), zeros4(), zeros4()
+        self.sampled_steps = torch.zeros((), device=self.device)
+        self.roll_sum = torch.zeros((), device=self.device)
+        self.roll_abs_sum = torch.zeros((), device=self.device)
+        self.pitch_sum = torch.zeros((), device=self.device)
+
+    def _foot_clearance(self) -> torch.Tensor:
+        values = []
+        for scanner in self.scanners:
+            hits_z = scanner.data.ray_hits_w[..., 2]
+            clearance = scanner.data.pos_w[:, 2].unsqueeze(-1) - hits_z
+            clearance = torch.where(
+                torch.isfinite(hits_z), clearance, torch.ones_like(clearance)
+            ).clamp(-0.1, 1.0)
+            values.append(clearance.mean(dim=-1))
+        return torch.stack(values, dim=1)
+
+    def update(self, active: torch.Tensor, acc_time: torch.Tensor) -> None:
+        force = torch.norm(self.sensor.data.net_forces_w[:, self.sensor_ids], dim=-1)
+        contact = force > 1.0
+        clearance = self._foot_clearance()
+        last_air = self.sensor.data.last_air_time[:, self.sensor_ids]
+
+        sample = active & (acc_time > self.WARMUP_S)
+        sample_f = sample.float()
+        if sample.any():
+            active_mask = sample.unsqueeze(1)
+            stance = contact & active_mask
+            swing = (~contact) & active_mask
+            touch = stance & ~self.prev_contact
+
+            stance_f = stance.float()
+            swing_f = swing.float()
+            touch_f = touch.float()
+            self.stance_n += stance_f.sum(dim=0)
+            self.stance_clear += (clearance * stance_f).sum(dim=0)
+            self.stance_clear_sq += (clearance.square() * stance_f).sum(dim=0)
+            self.swing_n += swing_f.sum(dim=0)
+            self.swing_clear += (clearance * swing_f).sum(dim=0)
+            self.swing_clear_sq += (clearance.square() * swing_f).sum(dim=0)
+            self.swing_low_n += (swing & (clearance < self.LOW_SWING_CLEARANCE)).sum(dim=0)
+            self.touch_n += touch_f.sum(dim=0)
+            self.touch_air += (last_air * touch_f).sum(dim=0)
+            self.touch_air_sq += (last_air.square() * touch_f).sum(dim=0)
+            self.sampled_steps += sample_f.sum()
+
+            roll, pitch, _ = euler_xyz_from_quat(self.robot.data.root_quat_w)
+            self.roll_sum += (roll * sample_f).sum()
+            self.roll_abs_sum += (roll.abs() * sample_f).sum()
+            self.pitch_sum += (pitch * sample_f).sum()
+
+        self.prev_contact[:] = contact
+
+    @staticmethod
+    def _mean_std(total: torch.Tensor, total_sq: torch.Tensor, count: torch.Tensor):
+        denom = count.clamp(min=1.0)
+        mean = total / denom
+        var = (total_sq / denom - mean.square()).clamp(min=0.0)
+        return mean, var.sqrt()
+
+    def report(self, label: str) -> None:
+        n_samples = int(self.sampled_steps.item())
+        if n_samples == 0:
+            print(f"[foot-debug] {label}: no samples")
+            return
+        print(f"\n[foot-debug] {label} | env-steps={n_samples} (warmup {self.WARMUP_S:.1f}s)")
+        print("  foot      duty    stance_clear[m]     swing_clear[m]     swing_low   swing_air[s]      touches")
+        means = {}
+        for i, name in enumerate(_FOOT_BODY_NAMES):
+            total = self.stance_n[i] + self.swing_n[i]
+            duty = float(self.stance_n[i] / total.clamp(min=1.0))
+            stance_mean, stance_std = self._mean_std(
+                self.stance_clear[i], self.stance_clear_sq[i], self.stance_n[i]
+            )
+            swing_mean, swing_std = self._mean_std(self.swing_clear[i], self.swing_clear_sq[i], self.swing_n[i])
+            air_mean, air_std = self._mean_std(self.touch_air[i], self.touch_air_sq[i], self.touch_n[i])
+            stance_mean, stance_std = float(stance_mean), float(stance_std)
+            swing_mean, swing_std = float(swing_mean), float(swing_std)
+            air_mean, air_std = float(air_mean), float(air_std)
+            low_fraction = float(self.swing_low_n[i] / self.swing_n[i].clamp(min=1.0))
+            touch_count = int(self.touch_n[i].item())
+            air_text = "n/a" if touch_count == 0 else f"{air_mean:.3f}±{air_std:.3f}"
+            print(
+                f"  {name:<8} {duty:5.2f}   {stance_mean:.3f}±{stance_std:.3f}      "
+                f"{swing_mean:.3f}±{swing_std:.3f}      {low_fraction:5.1%}      "
+                f"{air_text:<15} {touch_count}"
+            )
+            means[name] = {
+                "duty": duty,
+                "stance_clear": stance_mean,
+                "swing_clear": swing_mean,
+                "air": air_mean,
+                "has_air": touch_count > 0,
+            }
+        for left, right in (("FL_foot", "FR_foot"), ("RL_foot", "RR_foot")):
+            lm, rm = means[left], means[right]
+            air_delta = lm["air"] - rm["air"] if lm["has_air"] and rm["has_air"] else None
+            air_text = "n/a" if air_delta is None else f"{air_delta:+.3f}s"
+            print(
+                f"  {left}-{right}: swing_clear {lm['swing_clear'] - rm['swing_clear']:+.3f} m, "
+                f"stance_clear {lm['stance_clear'] - rm['stance_clear']:+.3f} m, "
+                f"duty {lm['duty'] - rm['duty']:+.3f}, swing_air {air_text} "
+                f"(negative swing_clear = left foot lower)"
+            )
+        roll_mean = float(self.roll_sum / self.sampled_steps)
+        roll_abs = float(self.roll_abs_sum / self.sampled_steps)
+        pitch_mean = float(self.pitch_sum / self.sampled_steps)
+        print(
+            f"  base: roll {roll_mean:+.3f} rad (|roll| {roll_abs:.3f}), pitch {pitch_mean:+.3f} rad"
+        )
 
 
 def make_eval_env(task: str, kind_names: list[str], step_height: float, num_envs: int, device: str):
@@ -138,6 +283,10 @@ def main():
     # print header
     print(f"Evaluating '{task}' terrains {kinds} at step heights {[f'{h:.2f}' for h in heights]}")
     print(f"Episodes per configuration: {args_cli.num_episodes} ({episodes_per_kind} per kind), seed={args_cli.seed}")
+    if args_cli.foot_debug and args_cli.direction != "down":
+        print("[WARN] --foot_debug is intended for descent; add --direction down.")
+    if args_cli.foot_debug and len(kinds) > 1:
+        print("[WARN] --foot_debug aggregates all terrains; pass one --terrains value for a clean read.")
 
     # CSV output
     out_dir = os.path.join("logs", "rsl_rl", "eval_stair")
@@ -216,6 +365,7 @@ def evaluate_configuration(env: RslRlVecEnvWrapper, policy, kinds: list[str], ep
     # per-kind termination counts for the first steps
     debug = os.environ.get("STAIR_EVAL_DEBUG", "") == "1"
     debug_state = {"step": 0, "flush": 0}
+    foot_recorder = FootDebugRecorder(unwrapped, robot) if args_cli.foot_debug else None
     if debug:
         from go2_stair.tasks.locomotion.mdp.stair_cache import get_stair_cache
 
@@ -290,6 +440,8 @@ def evaluate_configuration(env: RslRlVecEnvWrapper, policy, kinds: list[str], ep
             acc_lin[active] += lin_speed[active] * dt
             acc_vert[active] += vert_speed[active] * dt
             acc_power[active] += power[active] * dt
+            if foot_recorder is not None:
+                foot_recorder.update(active, acc_time)
             last_pos_err[active] = torch.norm(
                 cmd_term.pos_command_w[active] - root_pos[active], dim=1
             )
@@ -340,6 +492,8 @@ def evaluate_configuration(env: RslRlVecEnvWrapper, policy, kinds: list[str], ep
             f"{sum(s['heading']) / max(s['n_episodes'], 1):.4f}",
             f"{sum(s['power']) / max(s['n_episodes'], 1):.4f}",
         ])
+    if foot_recorder is not None:
+        foot_recorder.report(f"terrain={','.join(kinds)} height={height:.2f}m direction={args_cli.direction}")
     return {
         "success": n_succ_total / max(n_total, 1),
         "lin_vel": sum(totals["lin"]) / max(n_total, 1),
