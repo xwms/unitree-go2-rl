@@ -374,8 +374,11 @@ def hind_swing_drop_penalty(
     """Penalize hind swing feet that hang more than ``target_drop`` below the base."""
     sensor: ContactSensor = env.scene[sensor_cfg.name]
     robot = env.scene[asset_cfg.name]
-    foot_names = [sensor.body_names[i] for i in sensor_cfg.body_ids]
-    hind_ids = [foot_names.index("RL_foot"), foot_names.index("RR_foot")]
+    hind_ids = getattr(env, "_stair_hind_ids", None)
+    if hind_ids is None:
+        foot_names = [sensor.body_names[i] for i in sensor_cfg.body_ids]
+        hind_ids = (foot_names.index("RL_foot"), foot_names.index("RR_foot"))
+        env._stair_hind_ids = hind_ids
     contact = torch.norm(sensor.data.net_forces_w[:, sensor_cfg.body_ids], dim=-1) > 1.0
     drop = robot.data.root_pos_w[:, 2].unsqueeze(1) - robot.data.body_pos_w[:, asset_cfg.body_ids, 2]
     excess = (drop[:, hind_ids] - target_drop).clamp(min=0.0, max=max_excess)
