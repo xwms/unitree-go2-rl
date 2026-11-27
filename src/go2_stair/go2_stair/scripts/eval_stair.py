@@ -119,6 +119,7 @@ class FootDebugRecorder:
         self.sensor = env.scene["contact_forces"]
         self.scanners = [env.scene[name] for name in _FOOT_SCANNER_NAMES]
         self.sensor_ids = [self.sensor.body_names.index(name) for name in _FOOT_BODY_NAMES]
+        self.body_ids = [robot.body_names.index(name) for name in _FOOT_BODY_NAMES]
         self.prev_contact = torch.zeros(env.num_envs, 4, dtype=torch.bool, device=self.device)
 
         def zeros4():
@@ -127,6 +128,8 @@ class FootDebugRecorder:
         self.stance_n, self.stance_clear, self.stance_clear_sq = zeros4(), zeros4(), zeros4()
         self.swing_n, self.swing_clear, self.swing_clear_sq = zeros4(), zeros4(), zeros4()
         self.swing_low_n = zeros4()
+        self.stance_drop, self.stance_drop_sq = zeros4(), zeros4()
+        self.swing_drop, self.swing_drop_sq = zeros4(), zeros4()
         self.touch_n, self.touch_air, self.touch_air_sq = zeros4(), zeros4(), zeros4()
         self.sampled_steps = torch.zeros((), device=self.device)
         self.roll_sum = torch.zeros((), device=self.device)
@@ -148,6 +151,7 @@ class FootDebugRecorder:
         force = torch.norm(self.sensor.data.net_forces_w[:, self.sensor_ids], dim=-1)
         contact = force > 1.0
         clearance = self._foot_clearance()
+        drop = self.robot.data.root_pos_w[:, 2].unsqueeze(1) - self.robot.data.body_pos_w[:, self.body_ids, 2]
         last_air = self.sensor.data.last_air_time[:, self.sensor_ids]
 
         sample = active & (acc_time > self.WARMUP_S)
@@ -164,9 +168,13 @@ class FootDebugRecorder:
             self.stance_n += stance_f.sum(dim=0)
             self.stance_clear += (clearance * stance_f).sum(dim=0)
             self.stance_clear_sq += (clearance.square() * stance_f).sum(dim=0)
+            self.stance_drop += (drop * stance_f).sum(dim=0)
+            self.stance_drop_sq += (drop.square() * stance_f).sum(dim=0)
             self.swing_n += swing_f.sum(dim=0)
             self.swing_clear += (clearance * swing_f).sum(dim=0)
             self.swing_clear_sq += (clearance.square() * swing_f).sum(dim=0)
+            self.swing_drop += (drop * swing_f).sum(dim=0)
+            self.swing_drop_sq += (drop.square() * swing_f).sum(dim=0)
             self.swing_low_n += (swing & (clearance < self.LOW_SWING_CLEARANCE)).sum(dim=0)
             self.touch_n += touch_f.sum(dim=0)
             self.touch_air += (last_air * touch_f).sum(dim=0)
@@ -204,9 +212,12 @@ class FootDebugRecorder:
                 self.stance_clear[i], self.stance_clear_sq[i], self.stance_n[i]
             )
             swing_mean, swing_std = self._mean_std(self.swing_clear[i], self.swing_clear_sq[i], self.swing_n[i])
+            stance_drop_mean, _ = self._mean_std(self.stance_drop[i], self.stance_drop_sq[i], self.stance_n[i])
+            swing_drop_mean, _ = self._mean_std(self.swing_drop[i], self.swing_drop_sq[i], self.swing_n[i])
             air_mean, air_std = self._mean_std(self.touch_air[i], self.touch_air_sq[i], self.touch_n[i])
             stance_mean, stance_std = float(stance_mean), float(stance_std)
             swing_mean, swing_std = float(swing_mean), float(swing_std)
+            stance_drop_mean, swing_drop_mean = float(stance_drop_mean), float(swing_drop_mean)
             air_mean, air_std = float(air_mean), float(air_std)
             low_fraction = float(self.swing_low_n[i] / self.swing_n[i].clamp(min=1.0))
             touch_count = int(self.touch_n[i].item())
@@ -221,9 +232,16 @@ class FootDebugRecorder:
                 "duty": duty,
                 "stance_clear": stance_mean,
                 "swing_clear": swing_mean,
+                "stance_drop": stance_drop_mean,
+                "swing_drop": swing_drop_mean,
                 "air": air_mean,
                 "has_air": touch_count > 0,
             }
+        print(
+            "  body swing_drop[m]: "
+            + "  ".join(f"{name[:2]} {means[name]['swing_drop']:.3f}" for name in _FOOT_BODY_NAMES),
+            flush=True,
+        )
         for left, right in (("FL_foot", "FR_foot"), ("RL_foot", "RR_foot")):
             lm, rm = means[left], means[right]
             air_delta = lm["air"] - rm["air"] if lm["has_air"] and rm["has_air"] else None
@@ -231,6 +249,7 @@ class FootDebugRecorder:
             print(
                 f"  {left}-{right}: swing_clear {lm['swing_clear'] - rm['swing_clear']:+.3f} m, "
                 f"stance_clear {lm['stance_clear'] - rm['stance_clear']:+.3f} m, "
+                f"swing_drop {lm['swing_drop'] - rm['swing_drop']:+.3f} m, "
                 f"duty {lm['duty'] - rm['duty']:+.3f}, swing_air {air_text} "
                 f"(negative swing_clear = left foot lower)",
                 flush=True,
