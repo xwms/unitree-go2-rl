@@ -362,24 +362,3 @@ def feet_swing_lift_reward(
     drop = robot.data.root_pos_w[:, 2].unsqueeze(1) - robot.data.body_pos_w[:, asset_cfg.body_ids, 2]
     per_foot = torch.exp(-torch.square(drop - target_drop) / (2.0 * std**2))
     return (per_foot * (~contact).float()).sum(dim=1)
-
-
-def hind_swing_drop_penalty(
-    env: ManagerBasedRLEnv,
-    sensor_cfg: SceneEntityCfg,
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=".*_foot"),
-    target_drop: float = 0.25,
-    max_excess: float = 0.15,
-) -> torch.Tensor:
-    """Penalize hind swing feet that hang more than ``target_drop`` below the base."""
-    sensor: ContactSensor = env.scene[sensor_cfg.name]
-    robot = env.scene[asset_cfg.name]
-    hind_ids = getattr(env, "_stair_hind_ids", None)
-    if hind_ids is None:
-        foot_names = [sensor.body_names[i] for i in sensor_cfg.body_ids]
-        hind_ids = (foot_names.index("RL_foot"), foot_names.index("RR_foot"))
-        env._stair_hind_ids = hind_ids
-    contact = torch.norm(sensor.data.net_forces_w[:, sensor_cfg.body_ids], dim=-1) > 1.0
-    drop = robot.data.root_pos_w[:, 2].unsqueeze(1) - robot.data.body_pos_w[:, asset_cfg.body_ids, 2]
-    excess = (drop[:, hind_ids] - target_drop).clamp(min=0.0, max=max_excess)
-    return (excess * (~contact[:, hind_ids]).float()).sum(dim=1)

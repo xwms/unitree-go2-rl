@@ -379,18 +379,6 @@ class StairStage2RewardsCfg(StairRewardsCfg):
             "std": 0.05,
         },
     )
-    # left hind swings markedly lower than the right in the descent diagnostic;
-    # body-relative (no RayCaster access) one-sided penalty to avoid reward farming
-    hind_swing_drop = RewTerm(
-        func=mdp.hind_swing_drop_penalty,
-        weight=-1.0,
-        params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-            "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
-            "target_drop": 0.25,
-            "max_excess": 0.15,
-        },
-    )
     feet_slide = RewTerm(
         func=mdp.feet_slide_penalty,
         weight=-0.1,
