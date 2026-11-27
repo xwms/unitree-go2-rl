@@ -20,7 +20,7 @@ Usage:
 
     # per-foot descent gait diagnostics (one terrain/height per process)
     python eval_stair.py --task Unitree-Go2-Stair-Stage2 --checkpoint <model.pt> --headless \
-        --direction down --terrains straight --step_heights 0.12 --num_episodes 60 --foot_debug
+        --direction down --terrains straight --step_heights 0.12 --foot_debug --foot_debug_steps 1000
 """
 
 """Launch Isaac Sim Simulator first."""
@@ -59,7 +59,13 @@ parser.add_argument(
     "--foot_debug",
     action="store_true",
     default=False,
-    help="Print per-foot contact, terrain clearance, swing-time and base-tilt statistics.",
+    help="Run a fixed-step descent rollout and print per-foot gait statistics (no success metrics).",
+)
+parser.add_argument(
+    "--foot_debug_steps",
+    type=int,
+    default=1000,
+    help="Number of control steps for --foot_debug (each env may complete several descent episodes).",
 )
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
@@ -184,10 +190,12 @@ class FootDebugRecorder:
     def report(self, label: str) -> None:
         n_samples = int(self.sampled_steps.item())
         if n_samples == 0:
-            print(f"[foot-debug] {label}: no samples")
+            print(f"[foot-debug] {label}: no samples", flush=True)
             return
-        print(f"\n[foot-debug] {label} | env-steps={n_samples} (warmup {self.WARMUP_S:.1f}s)")
-        print("  foot      duty    stance_clear[m]     swing_clear[m]     swing_low   swing_air[s]      touches")
+        print(f"\n[foot-debug] {label} | env-steps={n_samples} (warmup {self.WARMUP_S:.1f}s)", flush=True)
+        if n_samples < 1000:
+            print("[foot-debug] WARNING: few samples; increase --foot_debug_steps or --num_envs.", flush=True)
+        print("  foot      duty    stance_clear[m]     swing_clear[m]     swing_low   swing_air[s]      touches", flush=True)
         means = {}
         for i, name in enumerate(_FOOT_BODY_NAMES):
             total = self.stance_n[i] + self.swing_n[i]
@@ -206,7 +214,8 @@ class FootDebugRecorder:
             print(
                 f"  {name:<8} {duty:5.2f}   {stance_mean:.3f}±{stance_std:.3f}      "
                 f"{swing_mean:.3f}±{swing_std:.3f}      {low_fraction:5.1%}      "
-                f"{air_text:<15} {touch_count}"
+                f"{air_text:<15} {touch_count}",
+                flush=True,
             )
             means[name] = {
                 "duty": duty,
@@ -223,17 +232,26 @@ class FootDebugRecorder:
                 f"  {left}-{right}: swing_clear {lm['swing_clear'] - rm['swing_clear']:+.3f} m, "
                 f"stance_clear {lm['stance_clear'] - rm['stance_clear']:+.3f} m, "
                 f"duty {lm['duty'] - rm['duty']:+.3f}, swing_air {air_text} "
-                f"(negative swing_clear = left foot lower)"
+                f"(negative swing_clear = left foot lower)",
+                flush=True,
             )
         roll_mean = float(self.roll_sum / self.sampled_steps)
         roll_abs = float(self.roll_abs_sum / self.sampled_steps)
         pitch_mean = float(self.pitch_sum / self.sampled_steps)
         print(
-            f"  base: roll {roll_mean:+.3f} rad (|roll| {roll_abs:.3f}), pitch {pitch_mean:+.3f} rad"
+            f"  base: roll {roll_mean:+.3f} rad (|roll| {roll_abs:.3f}), pitch {pitch_mean:+.3f} rad",
+            flush=True,
         )
 
 
-def make_eval_env(task: str, kind_names: list[str], step_height: float, num_envs: int, device: str):
+def make_eval_env(
+    task: str,
+    kind_names: list[str],
+    step_height: float,
+    num_envs: int,
+    device: str,
+    keep_goal_termination: bool = False,
+):
     """Create an evaluation environment with a fixed terrain at the given step height."""
     env_cfg = parse_env_cfg(task, device=device, num_envs=num_envs)
     # fixed terrain: single difficulty level mapped to the requested step height
@@ -245,9 +263,11 @@ def make_eval_env(task: str, kind_names: list[str], step_height: float, num_envs
     gen_cfg.sub_terrains = {name: gen_cfg.sub_terrains[name] for name in kind_names}
     env_cfg.scene.terrain.max_init_terrain_level = 0
     env_cfg.events.reset_base.params["descend_prob"] = {"mixed": 0.5, "up": 0.0, "down": 1.0}[args_cli.direction]
-    # no curriculum moves and no goal-reached termination (success is detected by the eval loop)
+    # no curriculum moves; goal termination is kept for gait rollouts so reaching the goal
+    # starts the next descent episode, and removed for the success-metric evaluation
     env_cfg.curriculum = None
-    delattr(env_cfg.terminations, "goal_reached")
+    if not keep_goal_termination:
+        delattr(env_cfg.terminations, "goal_reached")
     # clean observations for evaluation
     env_cfg.observations.policy.enable_corruption = False
     if env_cfg.seed is None:
@@ -262,6 +282,36 @@ def load_policy(task: str, checkpoint: str, env, device: str):
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=device)
     runner.load(checkpoint)
     return env, runner.get_inference_policy(device=env.unwrapped.device)
+
+
+def run_foot_debug(env: RslRlVecEnvWrapper, policy, steps: int, label: str) -> None:
+    """Run a fixed-step rollout and report per-foot gait statistics."""
+    unwrapped = env.unwrapped
+    robot = unwrapped.scene["robot"]
+    recorder = FootDebugRecorder(unwrapped, robot)
+    dt = unwrapped.step_dt
+    device = unwrapped.device
+    acc_time = torch.zeros(unwrapped.num_envs, device=device)
+    pending_reset = torch.zeros(unwrapped.num_envs, dtype=torch.bool, device=device)
+    obs = env.get_observations()
+    obs = obs[0] if isinstance(obs, tuple) else obs
+    print(f"[foot-debug] rollout {label}: {steps} steps x {unwrapped.num_envs} envs", flush=True)
+    resets = 0
+
+    with torch.inference_mode():
+        for step in range(steps):
+            acc_time[pending_reset] = 0.0
+            active = ~pending_reset
+            acc_time[active] += dt
+            recorder.update(active, acc_time)
+            obs, _, dones, _ = env.step(policy(obs))
+            obs = obs[0] if isinstance(obs, tuple) else obs
+            pending_reset = dones.bool()
+            resets += int(dones.sum().item())
+            if (step + 1) % 500 == 0:
+                print(f"[foot-debug] rollout progress {step + 1}/{steps}, env resets={resets}", flush=True)
+    print(f"[foot-debug] rollout done: env resets={resets}", flush=True)
+    recorder.report(label)
 
 
 def main():
@@ -282,30 +332,46 @@ def main():
     episodes_per_kind = args_cli.num_episodes // len(kinds)
     # print header
     print(f"Evaluating '{task}' terrains {kinds} at step heights {[f'{h:.2f}' for h in heights]}")
-    print(f"Episodes per configuration: {args_cli.num_episodes} ({episodes_per_kind} per kind), seed={args_cli.seed}")
+    if args_cli.foot_debug:
+        print(f"Foot-debug rollout: {args_cli.foot_debug_steps} steps x {args_cli.num_envs} envs, seed={args_cli.seed}")
+    else:
+        print(f"Episodes per configuration: {args_cli.num_episodes} ({episodes_per_kind} per kind), seed={args_cli.seed}")
     if args_cli.foot_debug and args_cli.direction != "down":
         print("[WARN] --foot_debug is intended for descent; add --direction down.")
     if args_cli.foot_debug and len(kinds) > 1:
         print("[WARN] --foot_debug aggregates all terrains; pass one --terrains value for a clean read.")
+    if args_cli.foot_debug and len(heights) > 1:
+        print("[WARN] --foot_debug should use one --step_heights value per process.")
 
-    # CSV output
-    out_dir = os.path.join("logs", "rsl_rl", "eval_stair")
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(
-        out_dir, f"eval_{task.lower().replace('-', '_')}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
-    )
-    csv_file = open(out_path, "w", newline="")
-    csv_writer = csv.writer(csv_file)
-    csv_writer.writerow(
-        ["step_height", "terrain", "episodes", "success_rate",
-         "mean_lin_vel", "mean_vert_vel", "mean_pos_err", "mean_heading_err", "mean_power"]
-    )
+    # CSV output (success evaluation only)
+    csv_file = None
+    csv_writer = None
+    out_path = None
+    if not args_cli.foot_debug:
+        out_dir = os.path.join("logs", "rsl_rl", "eval_stair")
+        os.makedirs(out_dir, exist_ok=True)
+        out_path = os.path.join(
+            out_dir, f"eval_{task.lower().replace('-', '_')}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
+        )
+        csv_file = open(out_path, "w", newline="")
+        csv_writer = csv.writer(csv_file)
+        csv_writer.writerow(
+            ["step_height", "terrain", "episodes", "success_rate",
+             "mean_lin_vel", "mean_vert_vel", "mean_pos_err", "mean_heading_err", "mean_power"]
+        )
 
     for height in heights:
         print(f"\n--- step height: {height:.2f} m ---")
         env, policy = None, None
         try:
-            env = make_eval_env(task, kinds, height, args_cli.num_envs, args_cli.device)
+            env = make_eval_env(
+                task,
+                kinds,
+                height,
+                args_cli.num_envs,
+                args_cli.device,
+                keep_goal_termination=args_cli.foot_debug,
+            )
             env, policy = load_policy(task, args_cli.checkpoint, env, args_cli.device)
             if args_cli.dump_obs:
                 # take the flattened group observation straight from the manager (noise disabled)
@@ -318,6 +384,14 @@ def main():
                 print("[dump_joints]", ",".join(f"{v:.5f}" for v in robot.data.joint_pos[0].tolist()))
                 print("[dump_joint_vel]", ",".join(f"{v:.5f}" for v in robot.data.joint_vel[0].tolist()))
                 return
+            if args_cli.foot_debug:
+                run_foot_debug(
+                    env,
+                    policy,
+                    args_cli.foot_debug_steps,
+                    f"terrain={','.join(kinds)} height={height:.2f}m direction={args_cli.direction}",
+                )
+                continue
             row = evaluate_configuration(env, policy, kinds, episodes_per_kind, csv_writer, height)
             print(
                 f"[{height:.2f} m] success {row['success']:.1%} | lin_vel {row['lin_vel']:.3f} m/s | "
@@ -328,8 +402,9 @@ def main():
             if env is not None:
                 env.close()
 
-    csv_file.close()
-    print(f"\nResults written to {out_path}")
+    if csv_file is not None:
+        csv_file.close()
+        print(f"\nResults written to {out_path}")
 
 
 def evaluate_configuration(env: RslRlVecEnvWrapper, policy, kinds: list[str], episodes_per_kind: int, csv_writer, height: float) -> dict:
@@ -365,7 +440,6 @@ def evaluate_configuration(env: RslRlVecEnvWrapper, policy, kinds: list[str], ep
     # per-kind termination counts for the first steps
     debug = os.environ.get("STAIR_EVAL_DEBUG", "") == "1"
     debug_state = {"step": 0, "flush": 0}
-    foot_recorder = FootDebugRecorder(unwrapped, robot) if args_cli.foot_debug else None
     if debug:
         from go2_stair.tasks.locomotion.mdp.stair_cache import get_stair_cache
 
@@ -440,8 +514,6 @@ def evaluate_configuration(env: RslRlVecEnvWrapper, policy, kinds: list[str], ep
             acc_lin[active] += lin_speed[active] * dt
             acc_vert[active] += vert_speed[active] * dt
             acc_power[active] += power[active] * dt
-            if foot_recorder is not None:
-                foot_recorder.update(active, acc_time)
             last_pos_err[active] = torch.norm(
                 cmd_term.pos_command_w[active] - root_pos[active], dim=1
             )
@@ -492,8 +564,6 @@ def evaluate_configuration(env: RslRlVecEnvWrapper, policy, kinds: list[str], ep
             f"{sum(s['heading']) / max(s['n_episodes'], 1):.4f}",
             f"{sum(s['power']) / max(s['n_episodes'], 1):.4f}",
         ])
-    if foot_recorder is not None:
-        foot_recorder.report(f"terrain={','.join(kinds)} height={height:.2f}m direction={args_cli.direction}")
     return {
         "success": n_succ_total / max(n_total, 1),
         "lin_vel": sum(totals["lin"]) / max(n_total, 1),
