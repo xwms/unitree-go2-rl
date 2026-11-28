@@ -234,25 +234,6 @@ def base_roll_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
     return torch.square(env.scene["robot"].data.projected_gravity_b[:, 1])
 
 
-def hind_hip_abduction_symmetry_penalty(
-    env: ManagerBasedRLEnv,
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-    margin: float = 0.15,
-    max_excess: float = 0.50,
-) -> torch.Tensor:
-    """Hinge penalty on mirrored hind-hip deviations from their default positions."""
-    robot = env.scene[asset_cfg.name]
-    ids = getattr(env, "_stair_hind_hip_ids", None)
-    if ids is None:
-        ids = tuple(robot.joint_names.index(name) for name in ("RL_hip_joint", "RR_hip_joint"))
-        env._stair_hind_hip_ids = ids
-        env._stair_hind_hip_defaults = robot.data.default_joint_pos[0, list(ids)].clone()
-
-    dev = robot.data.joint_pos[:, ids] - env._stair_hind_hip_defaults
-    asymmetry = torch.abs(dev[:, 0] - dev[:, 1])
-    return torch.clamp(asymmetry - margin, min=0.0, max=max_excess)
-
-
 def leg_contact_penalty(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg, threshold: float = 1.0) -> torch.Tensor:
     """Penalty (1.0) while any body in the given group is in contact.
 

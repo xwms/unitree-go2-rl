@@ -347,11 +347,6 @@ class StairStage2RewardsCfg(StairRewardsCfg):
     )
     # official flat_orientation_l2 is -2.5; stairs need pitch, so penalize roll only
     base_roll = RewTerm(func=mdp.base_roll_penalty, weight=-2.5)
-    hind_hip_symmetry = RewTerm(
-        func=mdp.hind_hip_abduction_symmetry_penalty,
-        weight=-0.01,
-        params={"margin": 0.15, "max_excess": 0.50},
-    )
     # gait shaping: a clock-free diagonal-trot constraint (+2 for a diagonal stance,
 # -2 for a bound/legs-together stance), visible swing clearance, symmetric swing
 # times, and a per-step time price against the discount-driven sprint
