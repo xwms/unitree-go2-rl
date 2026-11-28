@@ -349,7 +349,7 @@ class StairStage2RewardsCfg(StairRewardsCfg):
     base_roll = RewTerm(func=mdp.base_roll_penalty, weight=-2.5)
     hind_hip_symmetry = RewTerm(
         func=mdp.hind_hip_abduction_symmetry_penalty,
-        weight=-0.05,
+        weight=-0.01,
         params={"margin": 0.15, "max_excess": 0.50},
     )
     # gait shaping: a clock-free diagonal-trot constraint (+2 for a diagonal stance,
